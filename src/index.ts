@@ -6,6 +6,8 @@ export * from "./core/answers.js";
 export * from "./core/conformal.js";
 export * from "./lang/analyze.js";
 export * from "./router/route.js";
+export * from "./harness/similarity.js";
+export * from "./harness/corpus.js";
 export * from "./engine/tokenizer.js";
 export * from "./engine/session.js";
 export * from "./engine/engine.js";

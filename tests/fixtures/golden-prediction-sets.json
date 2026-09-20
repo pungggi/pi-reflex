@@ -1,0 +1,184 @@
+{
+ "engine": "english",
+ "quantization": "int8",
+ "alpha": {
+  "noul": 0.1,
+  "score": 0.1
+ },
+ "states": [
+  {
+   "same_fact": {
+    "answer": {
+     "type": "noul",
+     "noul": 0.5069,
+     "confidence": 0.5069
+    },
+    "predictionSet": {
+     "kind": "noul",
+     "set": [
+      false,
+      false
+     ]
+    }
+   },
+   "durable_reusable": {
+    "answer": {
+     "type": "noul",
+     "noul": 0.506,
+     "confidence": 0.506
+    },
+    "predictionSet": {
+     "kind": "noul",
+     "set": [
+      false,
+      false
+     ]
+    }
+   },
+   "importance": {
+    "answer": {
+     "type": "score",
+     "score": 1.5149,
+     "confidence": 0.0001
+    },
+    "predictionSet": {
+     "kind": "scoreInterval",
+     "interval": {
+      "lo": 0.9148999999999998,
+      "hi": 2.1149
+     }
+    }
+   },
+   "relevance": {
+    "answer": {
+     "type": "score",
+     "score": 0.5165,
+     "confidence": 0.0008
+    },
+    "predictionSet": {
+     "kind": "scoreInterval",
+     "interval": {
+      "lo": -0.08350000000000013,
+      "hi": 1.1165
+     }
+    }
+   }
+  },
+  {
+   "same_fact": {
+    "answer": {
+     "type": "noul",
+     "noul": 0.5059,
+     "confidence": 0.5059
+    },
+    "predictionSet": {
+     "kind": "noul",
+     "set": [
+      false,
+      false
+     ]
+    }
+   },
+   "durable_reusable": {
+    "answer": {
+     "type": "noul",
+     "noul": 0.5058,
+     "confidence": 0.5058
+    },
+    "predictionSet": {
+     "kind": "noul",
+     "set": [
+      false,
+      false
+     ]
+    }
+   },
+   "importance": {
+    "answer": {
+     "type": "score",
+     "score": 1.5481,
+     "confidence": 0.0008
+    },
+    "predictionSet": {
+     "kind": "scoreInterval",
+     "interval": {
+      "lo": 0.9480999999999999,
+      "hi": 2.1481000000000003
+     }
+    }
+   },
+   "relevance": {
+    "answer": {
+     "type": "score",
+     "score": 0.536,
+     "confidence": 0.0037
+    },
+    "predictionSet": {
+     "kind": "scoreInterval",
+     "interval": {
+      "lo": -0.06400000000000006,
+      "hi": 1.1360000000000001
+     }
+    }
+   }
+  },
+  {
+   "same_fact": {
+    "answer": {
+     "type": "noul",
+     "noul": 0.5068,
+     "confidence": 0.5068
+    },
+    "predictionSet": {
+     "kind": "noul",
+     "set": [
+      false,
+      false
+     ]
+    }
+   },
+   "durable_reusable": {
+    "answer": {
+     "type": "noul",
+     "noul": 0.5094,
+     "confidence": 0.5094
+    },
+    "predictionSet": {
+     "kind": "noul",
+     "set": [
+      false,
+      false
+     ]
+    }
+   },
+   "importance": {
+    "answer": {
+     "type": "score",
+     "score": 1.5763,
+     "confidence": 0.0018
+    },
+    "predictionSet": {
+     "kind": "scoreInterval",
+     "interval": {
+      "lo": 0.9763,
+      "hi": 2.1763000000000003
+     }
+    }
+   },
+   "relevance": {
+    "answer": {
+     "type": "score",
+     "score": 0.5377,
+     "confidence": 0.0041
+    },
+    "predictionSet": {
+     "kind": "scoreInterval",
+     "interval": {
+      "lo": -0.06230000000000013,
+      "hi": 1.1377000000000002
+     }
+    }
+   }
+  }
+ ]
+}

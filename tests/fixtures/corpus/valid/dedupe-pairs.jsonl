@@ -1,0 +1,4 @@
+{"v": 1, "kind": "dedupe_pair", "a": "Use retry with exponential backoff on the payment API", "b": "Payment API calls should retry with exponential backoff", "label": "dup", "similarity": 0.71, "source": "tokenOverlap", "meta": {"kinds": ["prompt"], "owners": ["anthropic/claude-opus-4"]}}
+{"v": 1, "kind": "dedupe_pair", "a": "Store refresh tokens in httpOnly cookies", "b": "Keep sessions in Redis with sliding expiry", "label": "not_dup", "similarity": 0.42, "source": "tokenOverlap", "needs_review": true, "meta": {"kinds": ["prompt", "memory"], "owners": ["anthropic/claude-opus-4"]}}
+{"v": 1, "kind": "dedupe_pair", "a": "Always run npm test before committing", "b": "npm test must pass before any commit", "label": "dup", "similarity": 0.83, "source": "tokenOverlap"}
+{"v": 1, "kind": "dedupe_pair", "a": "Prefer JSONL for corpus exports", "b": "The deploy target is Fly.io eu-west", "label": "not_dup", "similarity": 0.11, "source": "tokenOverlap", "needs_review": true}
