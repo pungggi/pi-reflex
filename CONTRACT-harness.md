@@ -1,7 +1,7 @@
 # CONTRACT-harness — the pi-continual-harness consumer contract
 
 **Status:** pinned 2026-09-20 by the first real consumer ([pi-continual-harness](https://github.com/pungggi/pi-continual-harness) ≥ 0.10.0).
-**Purpose:** pi-continual-harness is pi-jev's first integration target. This
+**Purpose:** pi-continual-harness is pi-reflex's (formerly pi-jev) first integration target. This
 document pins the decision shapes, abstain semantics, latency budgets, and data
 contract **before** A3 builds the extension surfaces — so integration is glue,
 not redesign. Changes to this contract go through a PR touching BOTH repos.
@@ -12,7 +12,7 @@ The harness side of the seam already shipped (unreleased 0.10.0,
 
 ## 1. Decision call-sites
 
-| # | Harness call-site | pi-jev primitive | Inputs | On abstain |
+| # | Harness call-site | pi-reflex primitive | Inputs | On abstain |
 |---|---|---|---|---|
 | D1 | **Dedupe**: are two items the same durable fact? | `noul("same durable fact?")` | item contents (+ kind, evidence context) | **keep both**, flag pair for agent review — never auto-merge/delete |
 | D2 | **Create-gate**: is a proposed delta durable & reusable? | `noul("durable and reusable?")` | delta content + evidence | **escalate to agent** (existing steering path) — never silently accept/reject |
@@ -36,10 +36,10 @@ export interface SimilarityResult {
 type Similarity = (a: string, b: string) => number | SimilarityResult;
 ```
 
-A pi-jev companion package registers itself as the dedupe `similarity` (and/or
+A pi-reflex companion package registers itself as the dedupe `similarity` (and/or
 a `jev` proposer via `registerProposer`). Plain numeric returns must keep
 working — the companion is a drop-in upgrade over token Jaccard, and the
-harness falls back to Jaccard whenever pi-jev is absent, offline, or over
+harness falls back to Jaccard whenever pi-reflex is absent, offline, or over
 budget (**soft-fail composition**, the pi-mem pattern).
 
 ## 3. Latency budgets (per call-site)
@@ -55,7 +55,7 @@ budget (**soft-fail composition**, the pi-mem pattern).
 > D4 viable on CPU only with the multilingual checkpoint and ≤3 items per turn;
 > english 421M never fits D4 — use it for D1–D3 with caching, or GPU.
 
-Honesty check vs pi-jev's own numbers (ARCHITECTURE.md): CPU int8 is
+Honesty check vs pi-reflex's own numbers (ARCHITECTURE.md): CPU int8 is
 ~40–120 ms (322 M multilingual) / ~80–250 ms (421 M English) per call. That
 makes D2/D1 viable on CPU **only with result caching**, D4 marginal (batch the
 selected items into ONE engine call, not N), D3 free. If the budget is missed:
@@ -63,7 +63,7 @@ skip, don't block the turn.
 
 ## 4. Data contract — the calibration corpus
 
-The harness exports labeled decision data pi-jev uses to fit/verify its
+The harness exports labeled decision data pi-reflex uses to fit/verify its
 conformal layers (split: calibration vs eval). Format: JSONL, one record per
 decision, schema versioned with this contract.
 
@@ -92,10 +92,10 @@ neither laya nor von can copy.
 
 ## 5. Integration invariants (non-negotiable)
 
-1. **Audit trail** — every pi-jev-gated mutation flows through the harness's
+1. **Audit trail** — every pi-reflex-gated mutation flows through the harness's
    `applyDeltas` + `harness-state` session entries. `/tree` rollback must cover
    engine-triggered deletes. No side-channel writes.
-2. **Soft-fail** — pi-jev absent/slow/erroring ⇒ harness behavior degrades to
+2. **Soft-fail** — pi-reflex absent/slow/erroring ⇒ harness behavior degrades to
    token Jaccard + the plain steering proposer. Never broken.
 3. **Per-model isolation** — harness stores are strictly per-model
    (`ownerModel`). The A3 model-router preset must know: routing a turn to a
