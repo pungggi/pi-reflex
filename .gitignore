@@ -1,0 +1,18 @@
+# deps
+node_modules/
+
+# build output
+dist/
+
+# dev-only vendored laya sources (Apache-2.0) — re-vendor per ARCHITECTURE.md;
+# see tools/export_onnx.py. Too heavy for git; license lives in reference/laya/
+# upstream (https://github.com/NandhaKishorM/laya).
+reference/
+
+# exported checkpoints + tokenizers (~5.6 GB) — dev-box artifacts, never in git.
+# Distribution strategy: see CONTRACT-harness.md §2 + AGENTS release recipe.
+artifacts/
+*.onnx
+
+# local agent state
+.pi/

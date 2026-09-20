@@ -1,0 +1,44 @@
+{
+  "name": "pi-jev-jev",
+  "version": "0.0.1",
+  "description": "TypeScript-native System 1 decision engine: non-autoregressive choice/score/noul decisions with calibrated probabilities, conformal guarantees, multilingual routing. Zero Python at runtime.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "system1",
+    "decision-engine",
+    "classification",
+    "calibration",
+    "conformal",
+    "llm-router",
+    "guardrails",
+    "jev",
+    "laya",
+    "onnx"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "@huggingface/tokenizers": "^0.2.0",
+    "onnxruntime-node": "^1.30.0"
+  }
+}

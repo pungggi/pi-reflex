@@ -1,0 +1,561 @@
+{
+ "checkpoint": "multilingual",
+ "cases": [
+  {
+   "state": {
+    "from": "user@acme.com",
+    "subject": "Duplicate charge on invoice #4411",
+    "body": "Hi, we were billed twice for March. Please refund the duplicate today or we will cancel our plan."
+   },
+   "questions": {
+    "department": {
+     "type": "choice",
+     "instructions": "Which department should handle this request?",
+     "criteria": {
+      "billing": "invoices, payments, refunds, subscription charges",
+      "technical": "bugs, outages, system errors, performance problems",
+      "sales": "pricing, new contracts, upgrades",
+      "other": "everything else"
+     }
+    },
+    "urgent": {
+     "type": "noul",
+     "instructions": "Does this require immediate intervention?"
+    },
+    "severity": {
+     "type": "score",
+     "instructions": "How severe is this issue?",
+     "criteria": [
+      "minor annoyance",
+      "degraded experience",
+      "blocking work",
+      "production down"
+     ]
+    },
+    "frustration": {
+     "type": "score",
+     "instructions": "How frustrated does the user sound?",
+     "criteria": [
+      "calm",
+      "annoyed",
+      "angry",
+      "threatening to cancel"
+     ]
+    }
+   },
+   "expected": {
+    "model": "laya-rl-agent",
+    "answers": {
+     "department": {
+      "type": "choice",
+      "choice": "billing",
+      "probabilities": {
+       "billing": 1.0,
+       "technical": 0.0,
+       "sales": 0.0,
+       "other": 0.0
+      },
+      "confidence": 1.0,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "urgent": {
+      "type": "noul",
+      "noul": 0.7303,
+      "confidence": 0.7303,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "severity": {
+      "type": "score",
+      "score": 0.9941,
+      "legend": {
+       "0": "minor annoyance",
+       "1": "degraded experience",
+       "2": "blocking work",
+       "3": "production down"
+      },
+      "probabilities": {
+       "0": 0.0391,
+       "1": 0.9374,
+       "2": 0.0137,
+       "3": 0.0098
+      },
+      "confidence": 0.7898,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "frustration": {
+      "type": "score",
+      "score": 1.7967,
+      "legend": {
+       "0": "calm",
+       "1": "annoyed",
+       "2": "angry",
+       "3": "threatening to cancel"
+      },
+      "probabilities": {
+       "0": 0.0342,
+       "1": 0.408,
+       "2": 0.2847,
+       "3": 0.2731
+      },
+      "confidence": 0.1393,
+      "action": {
+       "act_probability": 1.0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 364,
+     "output_tokens": 0
+    }
+   }
+  },
+  {
+   "state": "Payment gateway reports timeout on charge authorizations. Customers cannot checkout since 09:00 UTC. This is URGENT.",
+   "questions": {
+    "department": {
+     "type": "choice",
+     "instructions": "Which department should handle this request?",
+     "criteria": {
+      "billing": "invoices, payments, refunds, subscription charges",
+      "technical": "bugs, outages, system errors, performance problems",
+      "sales": "pricing, new contracts, upgrades",
+      "other": "everything else"
+     }
+    },
+    "urgent": {
+     "type": "noul",
+     "instructions": "Does this require immediate intervention?"
+    },
+    "severity": {
+     "type": "score",
+     "instructions": "How severe is this issue?",
+     "criteria": [
+      "minor annoyance",
+      "degraded experience",
+      "blocking work",
+      "production down"
+     ]
+    },
+    "frustration": {
+     "type": "score",
+     "instructions": "How frustrated does the user sound?",
+     "criteria": [
+      "calm",
+      "annoyed",
+      "angry",
+      "threatening to cancel"
+     ]
+    }
+   },
+   "expected": {
+    "model": "laya-rl-agent",
+    "answers": {
+     "department": {
+      "type": "choice",
+      "choice": "billing",
+      "probabilities": {
+       "billing": 0.8851,
+       "technical": 0.0277,
+       "sales": 0.0823,
+       "other": 0.0048
+      },
+      "confidence": 0.6835,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "urgent": {
+      "type": "noul",
+      "noul": 0.6816,
+      "confidence": 0.6816,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "severity": {
+      "type": "score",
+      "score": 1.1644,
+      "legend": {
+       "0": "minor annoyance",
+       "1": "degraded experience",
+       "2": "blocking work",
+       "3": "production down"
+      },
+      "probabilities": {
+       "0": 0.0454,
+       "1": 0.7951,
+       "2": 0.1089,
+       "3": 0.0505
+      },
+      "confidence": 0.4842,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "frustration": {
+      "type": "score",
+      "score": 1.6301,
+      "legend": {
+       "0": "calm",
+       "1": "annoyed",
+       "2": "angry",
+       "3": "threatening to cancel"
+      },
+      "probabilities": {
+       "0": 0.0327,
+       "1": 0.505,
+       "2": 0.2619,
+       "3": 0.2005
+      },
+      "confidence": 0.185,
+      "action": {
+       "act_probability": 1.0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 272,
+     "output_tokens": 0
+    }
+   }
+  },
+  {
+   "state": {
+    "body": "मुझसे दो बार शुल्क लिया गया, कृपया पैसे वापस करें।"
+   },
+   "questions": {
+    "department": {
+     "type": "choice",
+     "instructions": "Which department should handle this request?",
+     "criteria": {
+      "billing": "invoices, payments, refunds, subscription charges",
+      "technical": "bugs, outages, system errors, performance problems",
+      "sales": "pricing, new contracts, upgrades",
+      "other": "everything else"
+     }
+    },
+    "urgent": {
+     "type": "noul",
+     "instructions": "Does this require immediate intervention?"
+    },
+    "severity": {
+     "type": "score",
+     "instructions": "How severe is this issue?",
+     "criteria": [
+      "minor annoyance",
+      "degraded experience",
+      "blocking work",
+      "production down"
+     ]
+    },
+    "frustration": {
+     "type": "score",
+     "instructions": "How frustrated does the user sound?",
+     "criteria": [
+      "calm",
+      "annoyed",
+      "angry",
+      "threatening to cancel"
+     ]
+    }
+   },
+   "expected": {
+    "model": "laya-rl-agent",
+    "answers": {
+     "department": {
+      "type": "choice",
+      "choice": "billing",
+      "probabilities": {
+       "billing": 0.9888,
+       "technical": 0.0022,
+       "sales": 0.003,
+       "other": 0.006
+      },
+      "confidence": 0.9476,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "urgent": {
+      "type": "noul",
+      "noul": 0.224,
+      "confidence": 0.776,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "severity": {
+      "type": "score",
+      "score": 0.9799,
+      "legend": {
+       "0": "minor annoyance",
+       "1": "degraded experience",
+       "2": "blocking work",
+       "3": "production down"
+      },
+      "probabilities": {
+       "0": 0.0867,
+       "1": 0.8545,
+       "2": 0.0509,
+       "3": 0.0078
+      },
+      "confidence": 0.6133,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "frustration": {
+      "type": "score",
+      "score": 1.4176,
+      "legend": {
+       "0": "calm",
+       "1": "annoyed",
+       "2": "angry",
+       "3": "threatening to cancel"
+      },
+      "probabilities": {
+       "0": 0.1116,
+       "1": 0.4771,
+       "2": 0.2935,
+       "3": 0.1179
+      },
+      "confidence": 0.1275,
+      "action": {
+       "act_probability": 1.0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 252,
+     "output_tokens": 0
+    }
+   }
+  },
+  {
+   "state": "Der Kunde wurde zweimal belastet und wir werden die Zahlung jetzt prüfen.",
+   "questions": {
+    "department": {
+     "type": "choice",
+     "instructions": "Which department should handle this request?",
+     "criteria": {
+      "billing": "invoices, payments, refunds, subscription charges",
+      "technical": "bugs, outages, system errors, performance problems",
+      "sales": "pricing, new contracts, upgrades",
+      "other": "everything else"
+     }
+    },
+    "urgent": {
+     "type": "noul",
+     "instructions": "Does this require immediate intervention?"
+    },
+    "severity": {
+     "type": "score",
+     "instructions": "How severe is this issue?",
+     "criteria": [
+      "minor annoyance",
+      "degraded experience",
+      "blocking work",
+      "production down"
+     ]
+    },
+    "frustration": {
+     "type": "score",
+     "instructions": "How frustrated does the user sound?",
+     "criteria": [
+      "calm",
+      "annoyed",
+      "angry",
+      "threatening to cancel"
+     ]
+    }
+   },
+   "expected": {
+    "model": "laya-rl-agent",
+    "answers": {
+     "department": {
+      "type": "choice",
+      "choice": "billing",
+      "probabilities": {
+       "billing": 1.0,
+       "technical": 0.0,
+       "sales": 0.0,
+       "other": 0.0
+      },
+      "confidence": 1.0,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "urgent": {
+      "type": "noul",
+      "noul": 0.081,
+      "confidence": 0.919,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "severity": {
+      "type": "score",
+      "score": 1.0053,
+      "legend": {
+       "0": "minor annoyance",
+       "1": "degraded experience",
+       "2": "blocking work",
+       "3": "production down"
+      },
+      "probabilities": {
+       "0": 0.0403,
+       "1": 0.9199,
+       "2": 0.034,
+       "3": 0.0058
+      },
+      "confidence": 0.7467,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "frustration": {
+      "type": "score",
+      "score": 1.2599,
+      "legend": {
+       "0": "calm",
+       "1": "annoyed",
+       "2": "angry",
+       "3": "threatening to cancel"
+      },
+      "probabilities": {
+       "0": 0.1117,
+       "1": 0.5956,
+       "2": 0.2137,
+       "3": 0.079
+      },
+      "confidence": 0.2182,
+      "action": {
+       "act_probability": 1.0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 220,
+     "output_tokens": 0
+    }
+   }
+  },
+  {
+   "state": "Minor: the export button label is misspelled on the settings page. No rush at all, thanks!",
+   "questions": {
+    "department": {
+     "type": "choice",
+     "instructions": "Which department should handle this request?",
+     "criteria": {
+      "billing": "invoices, payments, refunds, subscription charges",
+      "technical": "bugs, outages, system errors, performance problems",
+      "sales": "pricing, new contracts, upgrades",
+      "other": "everything else"
+     }
+    },
+    "urgent": {
+     "type": "noul",
+     "instructions": "Does this require immediate intervention?"
+    },
+    "severity": {
+     "type": "score",
+     "instructions": "How severe is this issue?",
+     "criteria": [
+      "minor annoyance",
+      "degraded experience",
+      "blocking work",
+      "production down"
+     ]
+    },
+    "frustration": {
+     "type": "score",
+     "instructions": "How frustrated does the user sound?",
+     "criteria": [
+      "calm",
+      "annoyed",
+      "angry",
+      "threatening to cancel"
+     ]
+    }
+   },
+   "expected": {
+    "model": "laya-rl-agent",
+    "answers": {
+     "department": {
+      "type": "choice",
+      "choice": "sales",
+      "probabilities": {
+       "billing": 0.0154,
+       "technical": 0.2636,
+       "sales": 0.5002,
+       "other": 0.2208
+      },
+      "confidence": 0.2097,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "urgent": {
+      "type": "noul",
+      "noul": 0.0251,
+      "confidence": 0.9749,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "severity": {
+      "type": "score",
+      "score": 0.779,
+      "legend": {
+       "0": "minor annoyance",
+       "1": "degraded experience",
+       "2": "blocking work",
+       "3": "production down"
+      },
+      "probabilities": {
+       "0": 0.2447,
+       "1": 0.733,
+       "2": 0.0209,
+       "3": 0.0014
+      },
+      "confidence": 0.5223,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "frustration": {
+      "type": "score",
+      "score": 1.1848,
+      "legend": {
+       "0": "calm",
+       "1": "annoyed",
+       "2": "angry",
+       "3": "threatening to cancel"
+      },
+      "probabilities": {
+       "0": 0.1637,
+       "1": 0.5554,
+       "2": 0.2133,
+       "3": 0.0676
+      },
+      "confidence": 0.1816,
+      "action": {
+       "act_probability": 1.0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 244,
+     "output_tokens": 0
+    }
+   }
+  }
+ ]
+}

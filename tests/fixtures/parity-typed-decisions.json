@@ -1,0 +1,169 @@
+{
+ "checkpoint": "typed-decisions",
+ "cases": [
+  {
+   "state": {
+    "from": "user@acme.com",
+    "subject": "Duplicate charge on invoice #4411",
+    "body": "Hi, we were billed twice for March. Please refund the duplicate today or we will cancel our plan."
+   },
+   "questions": {
+    "action": {
+     "type": "choice",
+     "instructions": "What action should be taken?",
+     "criteria": [
+      "escalate",
+      "auto_resolve",
+      "monitor",
+      "request_info"
+     ]
+    },
+    "needs_review": {
+     "type": "noul",
+     "instructions": "Does this need human review?"
+    },
+    "urgency": {
+     "type": "score",
+     "instructions": "Rate the urgency.",
+     "criteria": [
+      "low",
+      "medium",
+      "high",
+      "critical"
+     ]
+    }
+   },
+   "expected": {
+    "model": "laya-rl-agent",
+    "answers": {
+     "action": {
+      "type": "choice",
+      "choice": "escalate",
+      "probabilities": {
+       "escalate": 0.62,
+       "auto_resolve": 0.1105,
+       "monitor": 0.1164,
+       "request_info": 0.1531
+      },
+      "confidence": 0.2228,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "needs_review": {
+      "type": "noul",
+      "noul": 0.3367,
+      "confidence": 0.6633,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "urgency": {
+      "type": "score",
+      "score": 2.2899,
+      "legend": {
+       "0": "low",
+       "1": "medium",
+       "2": "high",
+       "3": "critical"
+      },
+      "probabilities": {
+       "0": 0.0269,
+       "1": 0.1045,
+       "2": 0.4204,
+       "3": 0.4482
+      },
+      "confidence": 0.2373,
+      "action": {
+       "act_probability": 1.0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 239,
+     "output_tokens": 0
+    }
+   }
+  },
+  {
+   "state": "Payment gateway reports timeout on charge authorizations. Customers cannot checkout since 09:00 UTC. This is URGENT.",
+   "questions": {
+    "action": {
+     "type": "choice",
+     "instructions": "What action should be taken?",
+     "criteria": [
+      "escalate",
+      "auto_resolve",
+      "monitor",
+      "request_info"
+     ]
+    },
+    "needs_review": {
+     "type": "noul",
+     "instructions": "Does this need human review?"
+    },
+    "urgency": {
+     "type": "score",
+     "instructions": "Rate the urgency.",
+     "criteria": [
+      "low",
+      "medium",
+      "high",
+      "critical"
+     ]
+    }
+   },
+   "expected": {
+    "model": "laya-rl-agent",
+    "answers": {
+     "action": {
+      "type": "choice",
+      "choice": "escalate",
+      "probabilities": {
+       "escalate": 0.4796,
+       "auto_resolve": 0.098,
+       "monitor": 0.2103,
+       "request_info": 0.212
+      },
+      "confidence": 0.1078,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "needs_review": {
+      "type": "noul",
+      "noul": 0.5173,
+      "confidence": 0.5173,
+      "action": {
+       "act_probability": 1.0
+      }
+     },
+     "urgency": {
+      "type": "score",
+      "score": 2.5084,
+      "legend": {
+       "0": "low",
+       "1": "medium",
+       "2": "high",
+       "3": "critical"
+      },
+      "probabilities": {
+       "0": 0.0129,
+       "1": 0.0586,
+       "2": 0.3357,
+       "3": 0.5928
+      },
+      "confidence": 0.3517,
+      "action": {
+       "act_probability": 1.0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 161,
+     "output_tokens": 0
+    }
+   }
+  }
+ ]
+}
