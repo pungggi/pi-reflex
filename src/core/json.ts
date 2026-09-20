@@ -75,7 +75,7 @@ export function warnIntegerKeyOrder(keys: readonly string[], context: string): v
   if (warnedKeyOrder || !hasIntegerLikeKeys(keys)) return;
   warnedKeyOrder = true;
   console.warn(
-    `[pi-jev] ${context}: integer-like labels detected (${keys.join(", ")}). ` +
+    `[pi-reflex] ${context}: integer-like labels detected (${keys.join(", ")}). ` +
       "JavaScript orders them numerically regardless of insertion order (python/laya preserves " +
       "insertion order) — verify this matches your intended option order.",
   );

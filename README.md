@@ -1,8 +1,11 @@
-# pi-jev
+# pi-reflex
 
 **TypeScript-native System 1 decision engine.** Typed decisions (`choice` / `score` / `noul`)
 with calibrated probabilities over any state — text, ticket, or JSON document — in a single
 non-autoregressive forward pass. Zero Python at runtime.
+
+> Formerly `pi-jev-jev`. A Jev-style, laya-compatible open alternative — not affiliated
+> with TypeSafe or their "Jev" product.
 
 It is a faithful, pure-TypeScript runtime for the open
 [Laya](https://github.com/NandhaKishorM/laya) checkpoints (Apache-2.0), plus a
@@ -20,7 +23,7 @@ guarantees instead of heuristic confidence gating. See
 ## Install
 
 ```bash
-npm install pi-jev-jev
+npm install pi-reflex
 ```
 
 The npm package is code-only. Model artifacts (~400 MB int8 / ~1.6 GB fp32 per checkpoint)
@@ -29,15 +32,15 @@ are generated or downloaded separately — see [Artifacts](#artifacts).
 Subpath imports keep the native runtime optional:
 
 ```ts
-import { ChoiceConformal, route, detectScript } from "pi-jev-jev/core";   // pure logic, no native deps
-import { Engine } from "pi-jev-jev/engine";                               // needs onnxruntime-node
+import { ChoiceConformal, route, detectScript } from "pi-reflex/core";   // pure logic, no native deps
+import { Engine } from "pi-reflex/engine";                               // needs onnxruntime-node
 ```
 
 ## Quickstart
 
 ```ts
-import { Engine } from "pi-jev-jev/engine";
-import { NoulConformal } from "pi-jev-jev/core";
+import { Engine } from "pi-reflex/engine";
+import { NoulConformal } from "pi-reflex/core";
 
 const engine = await Engine.fromArtifacts("./artifacts/multilingual");
 
@@ -78,9 +81,40 @@ const answers = await engine.batchQuestion(states, {
 });
 ```
 
+## Use as a pi extension
+
+pi-reflex ships a pi-package extension (tools for pi coding-agent sessions):
+
+```bash
+pi install /absolute/path/to/pi-reflex   # local; npm:pi-reflex when published
+```
+
+Tools (engine loads lazily on first use; `multilingual` int8 by default):
+
+| Tool | What it does |
+|---|---|
+| `reflex_decide` | calibrated single-choice decision (routing, triage) |
+| `reflex_judge` | calibrated P(true) for a yes/no question |
+| `reflex_rate` | ordinal rubric rating (expected level + distribution) |
+| `reflex_route` | **model tier + guardrails for an incoming message in one ~200 ms pass** |
+
+`/reflex` shows engine status. Env: `PI_REFLEX_ENGINE` (english|multilingual|typed-decisions),
+`PI_REFLEX_QUANT` (int8|fp32), `PI_REFLEX_ARTIFACTS` (local artifacts dir).
+
+## Use as the pi-continual-harness companion
+
+`pi-reflex/harness` implements the pinned [CONTRACT-harness.md](CONTRACT-harness.md)
+call-sites D1–D4: `createDedupeSimilarity` (cached seam similarity + conformal abstain),
+`createCreateGate`, `createImportanceRescorer`, `createInjectionRelevance` (≤3-item
+policy per the measured §3 budget). Uncalibrated ⇒ plain scores; over budget ⇒ the
+contract's own fallback. **Honesty note:** raw checkpoints judge paraphrase-sameness
+(D1) poorly uncalibrated (~0.05 for near-duplicates) — thresholds and calibration
+land with the real corpus in A4.
+
 ## Artifacts
 
-Generate locally (one-time, dev-only — Python never ships to users):
+Engines resolve: `$PI_REFLEX_ARTIFACTS` → cache (`~/.pi-reflex/engines`) → HF download
+(`pungggi/pi-reflex-artifacts`, lazy, on first use). Generate locally instead:
 
 ```bash
 python tools/export_onnx.py --checkpoint convaiinnovations/laya --out artifacts/english --int8
@@ -94,11 +128,11 @@ npm test                           # includes ONNX-vs-torch parity tests
 
 | Import | Contents |
 |---|---|
-| `pi-jev-jev` | everything (loads `onnxruntime-node`) |
-| `pi-jev-jev/core` | primitives, serialization, calibration, **conformal layer** — zero native deps |
-| `pi-jev-jev/router` | checkpoint routing decision (script/LID detection, precedence rules) |
-| `pi-jev-jev/lang` | script + language detection |
-| `pi-jev-jev/engine` | `Engine` (ONNX runtime), tokenizer adapter, session |
+| `pi-reflex` | everything (loads `onnxruntime-node`) |
+| `pi-reflex/core` | primitives, serialization, calibration, **conformal layer** — zero native deps |
+| `pi-reflex/router` | checkpoint routing decision (script/LID detection, precedence rules) |
+| `pi-reflex/lang` | script + language detection |
+| `pi-reflex/engine` | `Engine` (ONNX runtime), tokenizer adapter, session |
 
 ## Docs
 
@@ -113,7 +147,7 @@ npm test                           # includes ONNX-vs-torch parity tests
   (Python prints `NaN`), `-0` as `0` (Python prints `-0.0`).
 - **Integer-like choice labels** (`"1"`, `"10"`, `"2"`) are reordered by JavaScript
   (ascending, first) unlike Python dicts — keep them ascending or use non-numeric
-  labels; pi-jev warns at runtime when it detects a diverging order.
+  labels; pi-reflex warns at runtime when it detects a diverging order.
 - Reported probabilities are rounded to 4 decimals half-away-from-zero; laya uses
   banker's rounding (drift ≤ 1e-4).
 

@@ -49,7 +49,7 @@ describe("CONTRACT §2 — toSimilarity seam adapter", () => {
 const VALID_DIR = join(__dirname, "fixtures", "corpus", "valid");
 
 function tmpCorpus(files: Record<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), "pi-jev-corpus-"));
+  const dir = mkdtempSync(join(tmpdir(), "pi-reflex-corpus-"));
   for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content, "utf8");
   return dir;
 }

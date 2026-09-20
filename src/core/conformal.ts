@@ -1,5 +1,5 @@
 /**
- * Conformal guarantee layer — pi-jev's value-add over laya/von.
+ * Conformal guarantee layer — pi-reflex's value-add over laya/von.
  *
  * laya/von expose heuristic confidence gating ("escalate if confidence < 0.85").
  * We wrap the same calibrated probabilities in split-conformal prediction sets with

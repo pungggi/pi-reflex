@@ -1,7 +1,7 @@
 {
-  "name": "pi-jev-jev",
+  "name": "pi-reflex",
   "version": "0.0.1",
-  "description": "TypeScript-native System 1 decision engine: non-autoregressive choice/score/noul decisions with calibrated probabilities, conformal guarantees, multilingual routing. Zero Python at runtime.",
+  "description": "TypeScript-native System 1 decision engine: non-autoregressive choice/score/noul decisions with calibrated probabilities, conformal guarantees, multilingual routing. A Jev-style, laya-compatible open alternative (not affiliated with TypeSafe). Zero Python at runtime.",
   "type": "module",
   "license": "Apache-2.0",
   "engines": {
@@ -33,6 +33,14 @@
     "./harness": {
       "types": "./dist/harness/index.d.ts",
       "default": "./dist/harness/index.js"
+    },
+    "./presets": {
+      "types": "./dist/presets.d.ts",
+      "default": "./dist/presets.js"
+    },
+    "./extension": {
+      "types": "./dist/extension/index.d.ts",
+      "default": "./dist/extension/index.js"
     }
   },
   "files": [
@@ -47,8 +55,10 @@
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
+    "pi-package",
     "system1",
     "decision-engine",
+    "reflex",
     "classification",
     "calibration",
     "conformal",
@@ -56,9 +66,19 @@
     "guardrails",
     "jev",
     "laya",
+    "von",
     "onnx"
   ],
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0",
     "vite": "^8.3.0",

@@ -1,5 +1,5 @@
 /**
- * Engine — the pi-jev inference runtime. Mirrors laya's Agent.system_one exactly:
+ * Engine — the pi-reflex inference runtime. Mirrors laya's Agent.system_one exactly:
  * tokenize -> build sequences -> single fused forward pass -> temperature-calibrated answers.
  */
 import { readFileSync, existsSync } from "node:fs";
@@ -95,7 +95,7 @@ export class Engine {
     });
 
     return {
-      model: `pi-jev/${this.name}`,
+      model: `pi-reflex/${this.name}`,
       answers,
       usage: { input_tokens: b.totalTokens, output_tokens: 0 },
     };

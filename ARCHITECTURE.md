@@ -1,4 +1,4 @@
-# pi-jev Architecture
+# pi-reflex Architecture
 
 TypeScript-native System 1 decision engine — a best-of-both layer over
 [laya](https://github.com/NandhaKishorM/laya)'s open Apache-2.0 checkpoints, with
@@ -17,7 +17,7 @@ spots that never ship to users:
 
 ### The swap, layer by layer
 
-| laya (Python) | pi-jev (TS) | Status |
+| laya (Python) | pi-reflex (TS) | Status |
 |---|---|---|
 | `transformers` + `torch` inference | **onnxruntime-node** (native, prebuilt binaries; CPU EP everywhere, CUDA EP optional) running a **fused ONNX graph** of DecisionModel (encoder + type_emb + 2-layer head + scorer + act_head, dynamic axes for seq/kmax/batch) | ✅ done — 3/3 checkpoints exported, parity ≤ 5.7e-06 logits |
 | `AutoTokenizer` (Rust via HF) | **@huggingface/tokenizers** (tokenizers.js — the transformers.js v3 engine, pure JS, ~8 kB) | ✅ done — identical token counts vs Python |
@@ -33,7 +33,7 @@ spots that never ship to users:
 
 1. **Distribution edge nobody has.** laya and von are both Python+PyTorch — unusable
    from a TS agent harness without a heavyweight sidecar. pi (and Claude Code, Cursor,
-   any MCP client) can `npm install pi-jev` and get a local System 1 brain.
+   any MCP client) can `npm install pi-reflex` and get a local System 1 brain.
 2. **The heavy lifting is open.** laya's checkpoints are Apache 2.0; the architecture
    is ModernBERT/mmBERT + small heads (421M/322M params) — we don't retrain to reach
    parity, we port the runtime and add guarantees.
@@ -43,7 +43,7 @@ spots that never ship to users:
 ## Component map
 
 ```
-pi-jev/
+pi-reflex/
 ├── src/core/          # pure logic — exact laya ports + our conformal layer
 │   ├── serialize.ts   #   build_sequence, budgets, collate
 │   ├── calibration.ts #   temp buckets, entropy confidence, softmax
