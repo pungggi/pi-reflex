@@ -4,6 +4,10 @@
   "description": "TypeScript-native System 1 decision engine: non-autoregressive choice/score/noul decisions with calibrated probabilities, conformal guarantees, multilingual routing. A Jev-style, laya-compatible open alternative (not affiliated with TypeSafe). Zero Python at runtime.",
   "type": "module",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pungggi/pi-reflex.git"
+  },
   "engines": {
     "node": ">=20.11"
   },
