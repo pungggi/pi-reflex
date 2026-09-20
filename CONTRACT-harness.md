@@ -66,13 +66,19 @@ decision, schema versioned with this contract.
 ```jsonc
 // dedupe-pairs.jsonl (from planDedupe runs)
 { "v": 1, "kind": "dedupe_pair", "a": "<content>", "b": "<content>",
-  "label": "dup" | "not_dup",            // merged = dup; below-threshold = not_dup (needs human confirm)
-  "similarity": 0.71, "source": "tokenOverlap", "meta": { "kinds": ["prompt"], "owners": ["anthropic/claude-..."] } }
+  "label": "dup" | "not_dup",            // merged = dup; same-key-field pairs in [0.3, 0.6) overlap the planner did NOT merge = not_dup
+  "similarity": 0.71, "source": "tokenOverlap", "needs_review": true,  // set on not_dup only
+  "meta": { "kinds": ["prompt"], "owners": ["anthropic/claude-..."] } }
 
 // lifecycle.jsonl (from outcome-loop + prune/keep/drop events)
 { "v": 1, "kind": "lifecycle", "item_kind": "memory", "content_hash": "sha256:...",
-  "event": "cited" | "pruned" | "dropped" | "kept" | "created", "importance": 0.42 }
+  "event": "created" | "cited" | "pruned" | "dropped" | "kept" | "deleted", "importance": 0.42 }
 ```
+
+Shipped in pi-continual-harness 0.11.0 as `/harness export-corpus [path]`
+(pure `buildCorpus()` core, re-exported from the package entry for offline use).
+One record per unique pair across runs; lifecycle contents are hashed, pair
+contents are carried (training needs them).
 
 Current size (honest): ~23 sessions with harness entries — enough for schema +
 smoke evals, **not** headline numbers. The exporter doubles as ongoing
