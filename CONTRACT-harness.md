@@ -51,6 +51,10 @@ budget (**soft-fail composition**, the pi-mem pattern).
 | D2 create-gate | `harness_mutate` intercept | ≤ 250 ms per delta batch | |
 | D3 importance re-score | offline / manual command | unbounded | batch job, no turn in flight |
 
+> Measured 2026-09-20 (int8 CPU, Zen3, ORT 1.30): see [BENCHMARKS.md](BENCHMARKS.md).
+> D4 viable on CPU only with the multilingual checkpoint and ≤3 items per turn;
+> english 421M never fits D4 — use it for D1–D3 with caching, or GPU.
+
 Honesty check vs pi-jev's own numbers (ARCHITECTURE.md): CPU int8 is
 ~40–120 ms (322 M multilingual) / ~80–250 ms (421 M English) per call. That
 makes D2/D1 viable on CPU **only with result caching**, D4 marginal (batch the
