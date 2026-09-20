@@ -75,14 +75,19 @@ export function stateText(state: StateInput, maxChars = 4000): string {
   return out.slice(0, maxChars);
 }
 
-/** Dominant script of `text`: 'latin', 'han', 'devanagari', ... or 'unknown'. */
-export function detectScript(text: string): string {
-  const counts: Record<string, number> = { latin: 0 };
+/**
+ * Shared per-script alphabetic-character counts.
+ * `latin` is added LAST (python `counts["latin"] = latin` after the loop), so
+ * first-max tie-breaking below matches python exactly: non-Latin wins ties.
+ */
+function scanScripts(text: string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  let latin = 0;
   for (const ch of text) {
     if (!IS_LETTER.test(ch)) continue;
     const cp = ch.codePointAt(0)!;
     if (cp < 0x0250 || (0x1e00 <= cp && cp <= 0x1eff)) {
-      counts.latin++;
+      latin++;
       continue;
     }
     for (const [name, ranges] of SCRIPT_RANGES) {
@@ -92,6 +97,13 @@ export function detectScript(text: string): string {
       }
     }
   }
+  counts["latin"] = latin;
+  return counts;
+}
+
+/** Dominant script of `text`: 'latin', 'han', 'devanagari', ... or 'unknown'. */
+export function detectScript(text: string): string {
+  const counts = scanScripts(text);
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   if (total === 0) return "unknown";
   let bestName = "latin";
@@ -107,21 +119,7 @@ export function detectScript(text: string): string {
 
 /** Fraction of alphabetic characters belonging to each detected script. */
 export function scriptProfile(text: string): Record<string, number> {
-  const counts: Record<string, number> = { latin: 0 };
-  for (const ch of text) {
-    if (!IS_LETTER.test(ch)) continue;
-    const cp = ch.codePointAt(0)!;
-    if (cp < 0x0250 || (0x1e00 <= cp && cp <= 0x1eff)) {
-      counts.latin++;
-      continue;
-    }
-    for (const [name, ranges] of SCRIPT_RANGES) {
-      if (ranges.some(([lo, hi]) => lo <= cp && cp <= hi)) {
-        counts[name] = (counts[name] ?? 0) + 1;
-        break;
-      }
-    }
-  }
+  const counts = scanScripts(text);
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   if (!total) return {};
   const out: Record<string, number> = {};
@@ -144,9 +142,10 @@ export function guessLatinLanguage(text: string): string | null {
   let best = 0;
   for (const lg of Object.keys(STOP)) {
     if (lg === "en") continue;
-    if (scores[lg] > best) {
+    const s = scores[lg] ?? 0;
+    if (s > best) {
       bestLg = lg;
-      best = scores[lg];
+      best = s;
     }
   }
   if (best === 0 && diacRate < 0.02) return en ? "en" : null;
@@ -167,7 +166,8 @@ export function analyse(state: StateInput): Analysis {
   const text = stateText(state);
   const prof = scriptProfile(text);
   const script = detectScript(text);
-  const nonLatin = prof["latin"] !== undefined ? Math.round((1 - prof["latin"]) * 1e4) / 1e4 : 0;
+  const latinShare = prof["latin"];
+  const nonLatin = latinShare !== undefined ? Math.round((1 - latinShare) * 1e4) / 1e4 : 0;
   if (script === "unknown") {
     return { script: "unknown", scriptProfile: prof, language: null, isEnglish: true, nonLatinFraction: 0 };
   }

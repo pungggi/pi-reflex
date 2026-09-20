@@ -11,9 +11,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "reference"))
-sys.path.insert(0, os.path.join(HERE, "..", "tools"))  # for _fix_tokenizer_config reuse
 
-from laya.agent import Agent, _fix_tokenizer_config  # noqa: E402
+from laya.agent import Agent  # noqa: E402
 
 ROUTING_QUESTIONS = {
     "department": {

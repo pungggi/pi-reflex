@@ -4,40 +4,27 @@
  * Format: `[CLS] <type> question: <instructions> [SEP] [MASK] opt0 [MASK] opt1 ... [SEP] state [SEP]`
  * Markers are the positions of each option's leading [MASK]; the model pools exactly there.
  */
+import {
+  renderCriterion,
+  serializeState,
+  warnIntegerKeyOrder,
+} from "./json.js";
 import type { InternalQuestion } from "./types.js";
 import type { TokenizerLike } from "./tokenizer.js";
 
-/** Python `json.dumps(x, ensure_ascii=False, separators=(", ", ": "))` equivalent. */
-export function pyJson(v: unknown): string {
-  if (v === null || v === undefined) return "null";
-  if (typeof v === "string") return JSON.stringify(v);
-  if (typeof v === "number" || typeof v === "boolean") return JSON.stringify(v);
-  if (Array.isArray(v)) return "[" + v.map(pyJson).join(", ") + "]";
-  if (typeof v === "object") {
-    const entries = Object.entries(v as Record<string, unknown>);
-    return "{" + entries.map(([k, val]) => `${JSON.stringify(k)}: ${pyJson(val)}`).join(", ") + "}";
-  }
-  return JSON.stringify(String(v)); // python default=str
-}
-
-export function serializeState(state: unknown): string {
-  if (typeof state === "string") return state;
-  return pyJson(state);
-}
-
-/** laya `render_criterion`: strings pass through, structured values become spaced JSON. */
-export function renderCriterion(value: unknown): string {
-  if (typeof value === "string") return value;
-  return pyJson(value);
-}
+// Public API compat: these moved to core/json.ts (types.ts needs them without a cycle).
+export { pyJson, serializeState, renderCriterion, hasKeyOrderDivergence } from "./json.js";
 
 /** laya `render_options`: option texts in label-index order. Noul is always [false, true]. */
 export function renderOptions(q: InternalQuestion): string[] {
   if (q.t === "choice") {
     const crit = (q.crit ?? {}) as Record<string, unknown>;
-    return Object.entries(crit).map(([k, v]) =>
-      v === null || v === undefined || v === "" ? k : `${k}: ${renderCriterion(v)}`,
-    );
+    const keys = Object.keys(crit);
+    warnIntegerKeyOrder(keys, "choice criteria");
+    return keys.map((k) => {
+      const v = crit[k];
+      return v === null || v === undefined || v === "" ? k : `${k}: ${renderCriterion(v)}`;
+    });
   }
   if (q.t === "score") {
     const crit = (q.crit ?? []) as unknown[];
@@ -77,18 +64,23 @@ export function buildSequence(
 
   const optsText = renderOptions(q);
   const order = opts.optionOrder ?? optsText.map((_, i) => i);
+  for (const i of order) {
+    if (!Number.isInteger(i) || i < 0 || i >= optsText.length) {
+      throw new RangeError(`optionOrder entry ${i} outside 0..${optsText.length - 1}`);
+    }
+  }
 
   let headIds = tok.encode(`${q.t} question: ${scrub(String(q.ins))}`);
 
   const optIds: number[][] = [];
   for (const i of order) {
-    optIds.push([tok.maskTokenId, ...tok.encode(" " + scrub(optsText[i])).slice(0, 48)]);
+    optIds.push([tok.maskTokenId, ...tok.encode(" " + scrub(optsText[i]!)).slice(0, 48)]);
   }
 
   let optBudget = headMaxLen - optIds.reduce((s, o) => s + o.length, 0);
   if (optBudget < 16) {
     const per = Math.max(4, Math.trunc((headMaxLen - 16) / Math.max(1, optIds.length)));
-    for (let i = 0; i < optIds.length; i++) optIds[i] = optIds[i].slice(0, per);
+    for (let i = 0; i < optIds.length; i++) optIds[i] = optIds[i]!.slice(0, per);
     optBudget = headMaxLen - optIds.reduce((s, o) => s + o.length, 0);
   }
   headIds = headIds.slice(0, Math.max(8, optBudget));
@@ -135,6 +127,7 @@ export interface CollatedBatch {
 
 /** laya `collate_items` for a single group of question items. */
 export function collate(items: CollatedItem[], padId: number): CollatedBatch {
+  if (items.length === 0) throw new Error("collate: items must not be empty");
   const n = items.length;
   const L = Math.max(...items.map((it) => it.ids.length));
   const kmax = Math.max(...items.map((it) => it.markers.length));
@@ -145,15 +138,25 @@ export function collate(items: CollatedItem[], padId: number): CollatedBatch {
   let totalTokens = 0;
 
   for (const it of items) {
-    const ids = it.ids.concat(Array(L - it.ids.length).fill(padId));
-    inputIds.push(ids);
-    const att = Array(it.ids.length).fill(1).concat(Array(L - it.ids.length).fill(0));
-    attentionMask.push(att);
+    const padCount = L - it.ids.length;
+    inputIds.push(it.ids.concat(Array(padCount).fill(padId)));
+    attentionMask.push(Array(it.ids.length).fill(1).concat(Array(padCount).fill(0)));
     totalTokens += it.ids.length;
     const k = it.markers.length;
-    markerPos.push(it.markers.concat(Array(kmax - k).fill(0)));
-    markerMask.push(Array(k).fill(true).concat(Array(kmax - k).fill(false)));
+    const padMarkers = kmax - k;
+    markerPos.push(it.markers.concat(Array(padMarkers).fill(0)));
+    markerMask.push(Array(k).fill(true).concat(Array(padMarkers).fill(false)));
   }
 
-  return { inputIds, attentionMask, markerPos, markerMask, qtype: items.map((it) => it.qtype), batch: n, seqLen: L, kmax, totalTokens };
+  return {
+    inputIds,
+    attentionMask,
+    markerPos,
+    markerMask,
+    qtype: items.map((it) => it.qtype),
+    batch: n,
+    seqLen: L,
+    kmax,
+    totalTokens,
+  };
 }

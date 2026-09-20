@@ -32,10 +32,14 @@ export class HfTokenizer implements TokenizerLike {
   /** Load from an artifacts directory containing tokenizer/tokenizer.json + tokenizer_config.json. */
   static fromDir(artifactsDir: string): HfTokenizer {
     const dir = join(artifactsDir, "tokenizer");
-    const json = JSON.parse(readFileSync(join(dir, "tokenizer.json"), "utf8")) as { added_tokens: AddedTokenJson[] };
+    const json = JSON.parse(readFileSync(join(dir, "tokenizer.json"), "utf8")) as {
+      added_tokens: AddedTokenJson[];
+      model?: { vocab?: Record<string, number> };
+    };
     const cfg = JSON.parse(readFileSync(join(dir, "tokenizer_config.json"), "utf8")) as Record<string, unknown>;
 
     const byContent = new Map(json.added_tokens.map((t) => [t.content, t.id]));
+    const modelVocab = json.model?.vocab;
     const need = (token: unknown, fallback: string): string => {
       if (typeof token === "string") return token;
       if (token && typeof token === "object" && "content" in token) return String((token as { content: unknown }).content);
@@ -47,8 +51,10 @@ export class HfTokenizer implements TokenizerLike {
     const padStr = need(cfg.pad_token, "[PAD]");
 
     const idOf = (s: string): number => {
-      const id = byContent.get(s);
-      if (id === undefined) throw new Error(`special token '${s}' not found in tokenizer.json added_tokens`);
+      // M2: prefer added_tokens, fall back to the model vocab (some tokenizers keep
+      // specials in the model rather than as added tokens).
+      const id = byContent.get(s) ?? modelVocab?.[s];
+      if (id === undefined) throw new Error(`special token '${s}' not found in tokenizer added_tokens or model vocab`);
       return id;
     };
 

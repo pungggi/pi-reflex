@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildSequence,
   collate,
+  hasKeyOrderDivergence,
   pyJson,
   renderCriterion,
   renderOptions,
@@ -64,6 +65,74 @@ describe("serializeState", () => {
   it("strings pass through, objects become spaced JSON", () => {
     expect(serializeState("raw")).toBe("raw");
     expect(serializeState({ b: 2 })).toBe('{"b": 2}');
+  });
+});
+
+describe("H1: toInternal non-string instructions use python-spaced JSON", () => {
+  it("object instructions serialize with spaced separators like python json.dumps", () => {
+    const q = toInternal({ type: "noul", instructions: { a: 1, b: "x" } } as QuestionDef);
+    expect(q.ins).toBe('{"a": 1, "b": "x"}'); // JSON.stringify would give {"a":1,"b":"x"}
+  });
+});
+
+describe("H3: integer-like key order divergence guard", () => {
+  it("detects orders JavaScript would reorder", () => {
+    expect(hasKeyOrderDivergence(["1", "10", "2"])).toBe(true); // not ascending
+    expect(hasKeyOrderDivergence(["a", "1"])).toBe(true); // integer after string
+    expect(hasKeyOrderDivergence(["10", "1"])).toBe(true); // lexicographic != numeric
+  });
+  it("accepts orders identical to python insertion order", () => {
+    expect(hasKeyOrderDivergence(["0", "1", "2"])).toBe(false);
+    expect(hasKeyOrderDivergence(["a", "b"])).toBe(false);
+    expect(hasKeyOrderDivergence(["0", "1", "a", "b"])).toBe(false);
+  });
+  it("renderOptions warns once when choice labels are integer-like", () => {
+    // ECMAScript normalizes integer-like keys to ascending at the object level
+    // (literals AND JSON.parse) — intent is unrecoverable, so warn on presence.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const q = toInternal({
+      type: "choice",
+      instructions: "i",
+      criteria: JSON.parse('{"1": null, "10": null, "2": null}'),
+    } as QuestionDef);
+    renderOptions(q);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain("integer-like labels");
+    renderOptions(q); // second call stays silent (warn-once)
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("no warning for ordinary string labels", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const q = toInternal({ type: "choice", instructions: "i", criteria: { billing: null, tech: null } } as QuestionDef);
+    renderOptions(q);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe("L7: optionOrder", () => {
+  it("builds the sequence in the given option order (markers follow)", () => {
+    const q = toInternal({ type: "choice", instructions: "pick", criteria: { a: "1", b: "2" } } as QuestionDef);
+    const normal = buildSequence(tok, "s", q);
+    const swapped = buildSequence(tok, "s", q, { optionOrder: [1, 0] });
+    expect(swapped.markers.length).toBe(2);
+    // first marker in swapped points at option b's text, normal at a's
+    expect(String.fromCodePoint(swapped.ids[swapped.markers[0]! + 2]!)).toBe("b");
+    expect(String.fromCodePoint(normal.ids[normal.markers[0]! + 2]!)).toBe("a");
+    // same total length
+    expect(swapped.ids.length).toBe(normal.ids.length);
+  });
+  it("rejects out-of-range order entries", () => {
+    const q = toInternal({ type: "noul", instructions: "x" } as QuestionDef);
+    expect(() => buildSequence(tok, "s", q, { optionOrder: [0, 1, 2] })).toThrow(RangeError);
+  });
+});
+
+describe("M7: collate rejects empty input", () => {
+  it("throws on empty items", () => {
+    expect(() => collate([], 0)).toThrow(/empty/i);
   });
 });
 

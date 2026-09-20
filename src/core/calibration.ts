@@ -8,8 +8,10 @@ export const QTYPE_NAMES: QTypeName[] = ["choice", "score", "noul"];
 
 /** laya `temp_bucket`: e.g. "choice:3-5", "noul:2", "score:11+". */
 export function tempBucket(qtype: number, k: number): string {
+  const name = QTYPE_NAMES[qtype];
+  if (name === undefined) throw new RangeError(`qtype must be 0 (choice), 1 (score) or 2 (noul); got ${qtype}`);
   const size = k <= 2 ? "2" : k <= 5 ? "3-5" : k <= 10 ? "6-10" : "11+";
-  return `${QTYPE_NAMES[qtype]}:${size}`;
+  return `${name}:${size}`;
 }
 
 /** laya `confidence_from_probs`: normalized Shannon entropy confidence 1 - H(p)/log(k). */
@@ -33,7 +35,7 @@ export interface Temperatures {
 }
 
 export function temperatureFor(t: Temperatures, qtype: number, k: number): number {
-  return t.temperatureByOptions?.[tempBucket(qtype, k)] ?? t.temperature[qtype];
+  return t.temperatureByOptions?.[tempBucket(qtype, k)] ?? t.temperature[qtype] ?? 1;
 }
 
 /** laya softmax over logits[:k] / max(1e-3, T), numerically stable. */

@@ -1,6 +1,7 @@
 /**
  * Public question/answer types — mirrors laya's `system_one` API shape.
  */
+import { pyJson } from "./json.js";
 
 export type QuestionInstructions = string | Record<string, unknown> | unknown[];
 
@@ -71,7 +72,7 @@ export interface SystemOneResult {
   usage: { input_tokens: number; output_tokens: number };
 }
 
-/** Flatten a laya-style state (string | object | array) into an internal question. */
+/** Normalize a laya-style question definition (laya `_to_internal`). */
 export function toInternal(qdef: QuestionDef): InternalQuestion {
   const t = qdef.type;
   let crit: unknown = "criteria" in qdef ? qdef.criteria : undefined;
@@ -79,5 +80,7 @@ export function toInternal(qdef: QuestionDef): InternalQuestion {
     crit = Object.fromEntries((crit as unknown[]).map((c) => [String(c), null]));
   }
   const ins = qdef.instructions;
-  return { t, ins: typeof ins === "string" ? ins : JSON.stringify(ins), crit };
+  // H1: python `json.dumps(ins)` uses ", "/": " separators — JSON.stringify would
+  // tokenize differently and silently diverge from laya for object/array instructions.
+  return { t, ins: typeof ins === "string" ? ins : pyJson(ins), crit };
 }

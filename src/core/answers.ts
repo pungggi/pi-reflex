@@ -25,30 +25,34 @@ export function buildAnswer(q: InternalQuestion, optionLogits: number[], actLogi
 
   const confScore = round4(confidenceFromProbs(p, k));
   const act = softmax(actLogits);
-  const ext = { act_probability: round4(act[0]) };
+  const actProb = act[0] ?? 0;
+  const ext = { act_probability: round4(actProb) };
 
   if (q.t === "choice") {
     const keys = Object.keys((q.crit ?? {}) as Record<string, unknown>);
     let best = 0;
-    for (let i = 1; i < k; i++) if (p[i] > p[best]) best = i;
+    for (let i = 1; i < k; i++) if ((p[i] ?? 0) > (p[best] ?? 0)) best = i;
+    const bestKey = keys[best];
+    if (bestKey === undefined) throw new Error(`choice criteria has no key for option index ${best}`);
     const probabilities: Record<string, number> = {};
-    keys.forEach((kk, i) => (probabilities[kk] = round4(p[i])));
-    return { type: "choice", choice: keys[best], probabilities, confidence: confScore, action: ext };
+    keys.forEach((kk, i) => (probabilities[kk] = round4(p[i] ?? 0)));
+    return { type: "choice", choice: bestKey, probabilities, confidence: confScore, action: ext };
   }
 
   if (q.t === "score") {
     let expScore = 0;
-    for (let i = 0; i < k; i++) expScore += i * p[i];
+    for (let i = 0; i < k; i++) expScore += i * (p[i] ?? 0);
     const crit = (q.crit ?? []) as unknown[];
     const legend: Record<string, unknown> = {};
     const probabilities: Record<string, number> = {};
     crit.forEach((c, i) => {
       legend[String(i)] = c;
-      probabilities[String(i)] = round4(p[i]);
+      probabilities[String(i)] = round4(p[i] ?? 0);
     });
     return { type: "score", score: round4(expScore), legend, probabilities, confidence: confScore, action: ext };
   }
 
   // noul
-  return { type: "noul", noul: round4(p[1]), confidence: round4(Math.max(p[1], 1 - p[1])), action: ext };
+  const pTrue = p[1] ?? 0;
+  return { type: "noul", noul: round4(pTrue), confidence: round4(Math.max(pTrue, 1 - pTrue)), action: ext };
 }

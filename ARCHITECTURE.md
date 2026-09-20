@@ -60,10 +60,19 @@ pi-jev/
 
 - **A1 (done):** core ports + router + conformal, 55 tests, typecheck green.
 - **A2 (done):** all 3 checkpoints exported to fused ONNX (parity ≤ 5.7e-06 logits vs torch;
-  int8 variants), onnxruntime-node + tokenizers.js glue, `Engine.systemOne()` — **6/6 parity
+  int8 variants), onnxruntime-node + tokenizers.js glue, `Engine.systemOne()` — **parity
   tests vs real laya torch on every checkpoint with identical token usage**. CPU fp32 latency
   (4 questions, one pass): multilingual ~220 ms/call (~55 ms/q), english ~590 ms/call
   (~147 ms/q). Zero Python in the runtime — proven.
+- **A2.5 (done): deep-review hardening** — H1 python-spaced JSON for non-string instructions;
+  H3 integer-like-label warning (JS owns their order — ECMAScript normalizes literals AND
+  JSON.parse); M1 conformal input validation (throw, never silent-NaN); M7 collate guard;
+  M9 noUncheckedIndexedAccess on; M5 `Engine.batchQuestion` (contract D4 batching);
+  M3 `dispose()`; M2 tokenizer vocab fallback; M4 exports subpaths (`./core` is
+  native-dep-free); H4 conformal golden tests + empty-set⇒ABSTAIN documented; M6 lazy
+  parity loading; H2 LICENSE + THIRD_PARTY_NOTICES + README (Apache-2.0 compliance for
+  vendored laya code/weights); dev toolchain on vitest 5 — **npm audit: 0 vulnerabilities,
+  84/84 tests, typecheck + build clean**.
 - **A3:** Surfaces — pi extension (tools: `decide`/`judge`/`rate`), MCP server,
   `/v1/systemone` HTTP shim; harness presets: model-router (cheap vs frontier),
   prompt-injection guard, triage. **Build these against the pinned first-consumer

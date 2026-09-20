@@ -39,7 +39,7 @@ import torch
 
 # Reuse laya's own architecture code (vendored under reference/laya, Apache 2.0).
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "reference", "laya"))
-from common import build_model, collate_items, build_sequence, render_options, QTYPES  # noqa: E402
+from common import build_model, collate_items, build_sequence, QTYPES  # noqa: E402
 
 MAX_LEN_DEFAULT = 512
 HEAD_MAX_LEN_DEFAULT = 192
