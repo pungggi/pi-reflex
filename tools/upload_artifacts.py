@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 DEV-ONLY: upload exported engine artifacts to the HF artifacts repo that
-`ensureEngine` downloads from (default: pungggi/pi-reflex-artifacts).
+`ensureEngine` downloads from (default: ngSoftware/pi-reflex-artifacts).
 
 One-time setup (per machine):
     hf auth login            # or: set HF_TOKEN=<write-capable token>
@@ -23,7 +23,7 @@ FP32_FILES = ["model.onnx", "model.onnx.data", "rl_agent_config.json", "tokenize
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repo", default=os.environ.get("HF_REPO", "pungggi/pi-reflex-artifacts"))
+    ap.add_argument("--repo", default=os.environ.get("HF_REPO", "ngSoftware/pi-reflex-artifacts"))
     ap.add_argument("--artifacts", default=os.path.join(os.path.dirname(__file__), "..", "artifacts"))
     ap.add_argument("--fp32", action="store_true", help="upload fp32 graphs too (default: int8 only)")
     ap.add_argument("--private", action="store_true", help="create the repo private (requires the user's plan to allow)")

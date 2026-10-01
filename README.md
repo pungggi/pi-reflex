@@ -173,7 +173,7 @@ land with the real corpus in A4.
 ## Artifacts
 
 Engines resolve: `$PI_REFLEX_ARTIFACTS` → cache (`~/.pi-reflex/engines`) → HF download
-(`pungggi/pi-reflex-artifacts`, lazy, on first use). Generate locally instead:
+(`ngSoftware/pi-reflex-artifacts`, lazy, on first use). Generate locally instead:
 
 ```bash
 python tools/export_onnx.py --checkpoint convaiinnovations/laya --out artifacts/english --int8
