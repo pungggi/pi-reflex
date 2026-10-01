@@ -53,6 +53,7 @@
   "files": [
     "dist",
     "bin",
+    "extensions",
     "README.md",
     "LICENSE"
   ],
