@@ -15,7 +15,7 @@ first publish exists. On npmjs.com → `pi-reflex` → Settings → Trusted Publ
 
 | field | value |
 |---|---|
-| Organization or user | `pungggi` |
+| Organization or user | `ngsoftware` (npm account — package owner; `pungggi` is GitHub) |
 | Repository | `pungggi/pi-reflex` |
 | Workflow filename | `release.yml` |
 | Environment | *(empty)* |
