@@ -68,5 +68,5 @@ npm view pi-reflex version    # expect X.Y.Z
 
 The package is code-only (~kB). Model artifacts (~400 MB int8 / 1.6 GB fp32 per
 checkpoint) resolve at runtime: `$PI_REFLEX_ARTIFACTS` → cache
-(`~/.pi-reflex/engines`) → HF download from `pungggi/pi-reflex-artifacts`
+(`~/.pi-reflex/engines`) → HF download from `ngSoftware/pi-reflex-artifacts`
 (must be public). Generate locally with `tools/export_onnx.py` instead.

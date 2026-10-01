@@ -12,8 +12,8 @@ describe("download — pure path/URL logic", () => {
     expect(engineFiles("fp32")).toContain("model.onnx.data");
   });
   it("hf URL building", () => {
-    expect(hfFileUrl("pungggi/pi-reflex-artifacts", "english", "tokenizer/tokenizer.json")).toBe(
-      "https://huggingface.co/pungggi/pi-reflex-artifacts/resolve/main/english/tokenizer/tokenizer.json",
+    expect(hfFileUrl("ngSoftware/pi-reflex-artifacts", "english", "tokenizer/tokenizer.json")).toBe(
+      "https://huggingface.co/ngSoftware/pi-reflex-artifacts/resolve/main/english/tokenizer/tokenizer.json",
     );
   });
   it("contentKey is stable and order-sensitive", () => {
@@ -51,7 +51,7 @@ describe("download — ensureEngine with mocked fetch", () => {
   }) as typeof fetch;
 
   it("downloads all files, verifies completeness, skips on second call", async () => {
-    const dir = await ensureEngine("english", { root, quant: "int8", fetchImpl, repo: "pungggi/pi-reflex-artifacts" });
+    const dir = await ensureEngine("english", { root, quant: "int8", fetchImpl, repo: "ngSoftware/pi-reflex-artifacts" });
     expect(isEngineReady(dir, "int8")).toBe(true);
     expect(readFileSync(join(dir, "rl_agent_config.json"), "utf8")).toContain("temperature");
     const firstCalls = calls;
@@ -62,7 +62,7 @@ describe("download — ensureEngine with mocked fetch", () => {
 
   it("404 surfaces a clear error", async () => {
     await expect(
-      ensureEngine("typed-decisions", { root, quant: "int8", fetchImpl, repo: "pungggi/pi-reflex-artifacts" }),
+      ensureEngine("typed-decisions", { root, quant: "int8", fetchImpl, repo: "ngSoftware/pi-reflex-artifacts" }),
     ).rejects.toThrow(/download failed \(404\)/);
   });
 

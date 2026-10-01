@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 export type EngineName = "english" | "multilingual" | "typed-decisions";
 export type Quant = "int8" | "fp32";
 
-export const DEFAULT_HF_REPO = "pungggi/pi-reflex-artifacts";
+export const DEFAULT_HF_REPO = "ngSoftware/pi-reflex-artifacts";
 
 export const ENGINE_NAMES: readonly EngineName[] = ["english", "multilingual", "typed-decisions"];
 
