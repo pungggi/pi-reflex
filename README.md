@@ -83,13 +83,15 @@ const answers = await engine.batchQuestion(states, {
 
 ## Use as a pi extension
 
-pi-reflex ships a pi-package extension (tools for pi coding-agent sessions):
+pi-reflex ships a pi-package extension (tools for pi coding-agent sessions, **pi ≥ 0.99**):
 
 ```bash
 pi install /absolute/path/to/pi-reflex   # local; npm:pi-reflex when published
 ```
 
-Tools (engine loads lazily on first use; `multilingual` int8 by default):
+Tools (engine loads lazily on first use; `multilingual` int8 by default). Every tool returns
+text **and** a typed `structuredContent` payload (pi outputSchema), is read-only annotated,
+and grouped under the `reflex` namespace:
 
 | Tool | What it does |
 |---|---|
@@ -98,8 +100,65 @@ Tools (engine loads lazily on first use; `multilingual` int8 by default):
 | `reflex_rate` | ordinal rubric rating (expected level + distribution) |
 | `reflex_route` | **model tier + guardrails for an incoming message in one ~200 ms pass** |
 
-`/reflex` shows engine status. Env: `PI_REFLEX_ENGINE` (english|multilingual|typed-decisions),
-`PI_REFLEX_QUANT` (int8|fp32), `PI_REFLEX_ARTIFACTS` (local artifacts dir).
+### Classifier models (`reflex/*`)
+
+The extension registers a `reflex` provider with three **local classifier models** —
+`reflex/multilingual`, `reflex/english`, `reflex/typed-decisions` — next to TypeSafe's hosted
+Jev classifiers, but offline, private, and free (no API key). Codemode scripts reach them
+through the uniform classifier interface:
+
+```js
+const reflex = await models.getModelOfType("classifier", "reflex", "multilingual");
+const r = await models.classify(reflex, {
+  state: { message: "The change works, thanks." },
+  questions: { approved: { type: "bool", instructions: "Does the user approve?" } },
+});
+return r.answers; // { approved: { type: "bool", probability: 0.97 } }
+```
+
+Extensions can do the same via `ctx.modelRegistry.classify()`. `bool`/`choice`/`score`
+map 1:1 onto our `noul`/`choice`/`score` primitives.
+
+### Virtual model `reflex/auto` (tier routing)
+
+Select `reflex/auto` in `/model` and each user turn is classified locally
+(`MODEL_ROUTER` + `INJECTION_GUARD`, one forward pass) before being dispatched to a
+cheap, mid, or frontier model. Continuations/retries stay sticky on the turn's model
+(prompt caches survive). Map tiers via env:
+
+```bash
+export PI_REFLEX_TIER_SMALL=anthropic/claude-haiku-4-5
+export PI_REFLEX_TIER_MID=anthropic/claude-sonnet-4-5
+export PI_REFLEX_TIER_FRONTIER=anthropic/claude-opus-4-5
+```
+
+Virtual thinking level `high` bumps one tier; unmapped tiers fall back to the previous
+physical model; engine failure degrades to mid tier instead of blocking the turn.
+
+### Prompt-injection guard (opt-in)
+
+`PI_REFLEX_GUARD=1` enables a `context_with_system` guard: new user messages are
+classified once (cached), and flagged ones (P ≥ `PI_REFLEX_GUARD_THRESHOLD`, default 0.75)
+are annotated as untrusted data before each provider request — never removed, never
+reordered, budget-capped (≤ 3 new messages/request), with a circuit breaker on engine
+failure.
+
+### MCP server
+
+```bash
+pi mcp add reflex -- node <pkg>/bin/pi-reflex-mcp.js   # or: PI_REFLEX_MCP=1 (extension registers it)
+```
+
+A zero-dependency stdio MCP server exposing the same four tools to any MCP client
+(pi, Claude Code, Cursor). JSON-RPC per line; `initialize` / `tools/list` / `tools/call`.
+
+`/reflex` shows engine, classifier, router, guard, and MCP status.
+
+Env: `PI_REFLEX_ENGINE` (english|multilingual|typed-decisions), `PI_REFLEX_QUANT` (int8|fp32),
+`PI_REFLEX_ARTIFACTS` (local artifacts dir), `PI_REFLEX_TIER_{SMALL,MID,FRONTIER}` (`provider/model-id`),
+`PI_REFLEX_GUARD` (1|0), `PI_REFLEX_GUARD_THRESHOLD`, `PI_REFLEX_MCP` (1|0),
+`PI_REFLEX_EXPOSURE` (`codemode` keeps the tools out of the model's tool list but callable
+from codemode scripts).
 
 ## Use as the pi-continual-harness companion
 
