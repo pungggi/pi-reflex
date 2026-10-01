@@ -1,6 +1,6 @@
 {
   "name": "pi-reflex",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "TypeScript-native System 1 decision engine: non-autoregressive choice/score/noul decisions with calibrated probabilities, conformal guarantees, multilingual routing. A Jev-style, laya-compatible open alternative (not affiliated with TypeSafe). Zero Python at runtime.",
   "type": "module",
   "license": "Apache-2.0",
@@ -60,7 +60,9 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build",
+    "prepublishOnly": "node -e \"if(!process.env.CI)throw new Error('publish via release.yml CI: push a v* tag. Manual npm publish is blocked to guarantee provenance + version sync (first-publish bootstrap documented in docs/PUBLISHING.md).')\""
   },
   "keywords": [
     "pi-package",
