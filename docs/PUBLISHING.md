@@ -15,7 +15,13 @@ first publish exists. On npmjs.com → `pi-reflex` → Settings → Trusted Publ
 
 | field | value |
 |---|---|
-| Organization or user | `ngsoftware` (npm account — package owner; `pungggi` is GitHub) |
+| Organization or user | `pungggi` — the **GitHub** username/org owning the repo (npm's form asks for the GitHub username, NOT the npm account; the npm package is owned by `ngsoftware`) |
+| Repository | `pungggi/pi-reflex` |
+| Workflow filename | `release.yml` (exact, no path) |
+| Environment | *(empty)* |
+| Allowed actions | tick **`npm publish`** (direct) — connections created after 2026-09-03 default to `npm stage publish` only, which stages instead of publishing |
+
+> npm: existing trusted-publisher connections are immutable — to change any field, delete the connection and create a new one.
 | Repository | `pungggi/pi-reflex` |
 | Workflow filename | `release.yml` |
 | Environment | *(empty)* |
