@@ -108,4 +108,38 @@ describe("routeUserTurn", () => {
     expect(out.state.reason).toContain("engine unavailable");
     expect(out.model).toMatchObject({ id: "mid-model" });
   });
+
+  it("PR#2 #2: degraded routes never effort-bump — high effort + dead engine stays mid, not frontier", async () => {
+    const broken = async () => {
+      throw new Error("engine down");
+    };
+    const out = await routeUserTurn(broken, "anything", "high", deps);
+    expect(out.model).toMatchObject({ id: "mid-model" });
+    expect(out.state.tier).toBe("mid");
+    expect(out.thinkingLevel).toBe("medium");
+  });
+
+  it("PR#2 #3: unmapped bumped tier prefers previous over the original tier's mapping (no silent downgrade)", async () => {
+    const onlySmall = {
+      env: { PI_REFLEX_TIER_SMALL: "prov/small-model" },
+      find: deps.find,
+    };
+    const frontierActive = { id: "frontier-model", provider: "prov" } as never;
+    // trivial + high effort → bumped tier `mid` unmapped: stay on the active frontier model,
+    // not the original `small` mapping.
+    const out = await routeUserTurn(fakeLoader({ choice: "trivial", noul: 0.1 }), "quick question", "high", onlySmall, frontierActive);
+    expect(out.model).toBe(frontierActive);
+    expect(out.state.reason).toContain("staying on the previous model");
+    expect(out.thinkingLevel).toBe("high");
+  });
+
+  it("PR#2 #3: without a previous model, the original tier mapping is the last resort", async () => {
+    const onlySmall = {
+      env: { PI_REFLEX_TIER_SMALL: "prov/small-model" },
+      find: deps.find,
+    };
+    const out = await routeUserTurn(fakeLoader({ choice: "trivial", noul: 0.1 }), "quick question", "high", onlySmall);
+    expect(out.model).toMatchObject({ id: "small-model" });
+    expect(out.state.reason).toContain("using the small mapping");
+  });
 });

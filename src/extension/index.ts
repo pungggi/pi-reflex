@@ -25,13 +25,16 @@ import { latestUserText, routeUserTurn, type ReflexAutoState } from "./vmodel.js
 import { createInjectionGuard } from "./guard.js";
 
 export interface ExtensionDeps {
-  loadEngine?: () => Promise<Engine>;
+  loadEngine?: (name: EngineName) => Promise<Engine>;
   env?: Record<string, string | undefined>;
 }
 
 interface EngineSlot {
   engines: Map<string, Engine>;
-  error: string | null;
+  /** In-flight loads, keyed by engine name — concurrent callers share one load (PR#2 review #6). */
+  loading: Map<string, Promise<Engine>>;
+  /** Per-engine load failures — one bad engine must not poison the others (PR#2 review #1). */
+  errors: Map<string, string>;
   lastLatencyMs: number | null;
   source: string | null;
   engineName: EngineName;
@@ -42,7 +45,8 @@ function makeSlot(deps?: ExtensionDeps) {
   const env = deps?.env ?? process.env;
   const slot: EngineSlot = {
     engines: new Map(),
-    error: null,
+    loading: new Map(),
+    errors: new Map(),
     lastLatencyMs: null,
     source: null,
     engineName: (env.PI_REFLEX_ENGINE as EngineName | undefined) ?? "multilingual",
@@ -50,7 +54,7 @@ function makeSlot(deps?: ExtensionDeps) {
   };
 
   const loadNamed = async (name: EngineName): Promise<Engine> => {
-    if (deps?.loadEngine) return deps.loadEngine();
+    if (deps?.loadEngine) return deps.loadEngine(name);
     const local = findLocalEngine(name, slot.quant);
     if (local) {
       slot.source = `local:${local}`;
@@ -71,15 +75,24 @@ function makeSlot(deps?: ExtensionDeps) {
     async getNamed(name: string): Promise<Engine> {
       const cached = slot.engines.get(name);
       if (cached) return cached;
-      if (slot.error) throw new Error(slot.error);
-      try {
-        const engine = await loadNamed(name as EngineName);
-        slot.engines.set(name, engine);
-      } catch (e) {
-        slot.error = `pi-reflex engine unavailable: ${(e as Error).message}. Generate artifacts with tools/export_onnx.py or set PI_REFLEX_ARTIFACTS.`;
-        throw new Error(slot.error);
-      }
-      return slot.engines.get(name)!;
+      const inFlight = slot.loading.get(name);
+      if (inFlight) return inFlight;
+      const load = (async () => {
+        try {
+          const engine = await loadNamed(name as EngineName);
+          slot.engines.set(name, engine);
+          slot.errors.delete(name);
+          return engine;
+        } catch (e) {
+          const message = `pi-reflex engine '${name}' unavailable: ${(e as Error).message}. Generate artifacts with tools/export_onnx.py or set PI_REFLEX_ARTIFACTS.`;
+          slot.errors.set(name, message);
+          throw new Error(message);
+        } finally {
+          slot.loading.delete(name);
+        }
+      })();
+      slot.loading.set(name, load);
+      return load;
     },
   };
 }
@@ -260,8 +273,8 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       const engine = slot.engines.get(slot.engineName);
       const status = engine
         ? `loaded (${slot.source})`
-        : slot.error
-          ? `error: ${slot.error}`
+        : slot.errors.get(slot.engineName)
+          ? `error: ${slot.errors.get(slot.engineName)}`
           : "idle (loads on first use)";
       const tiers = ["SMALL", "MID", "FRONTIER"]
         .map((t) => env[`PI_REFLEX_TIER_${t}`] ?? "-")

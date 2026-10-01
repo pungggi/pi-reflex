@@ -15,6 +15,8 @@ import { createToolCores, type ToolCores } from "../extension/cores.js";
 import { ensureEngine, findLocalEngine, type EngineName, type Quant } from "../engine/download.js";
 
 const PROTOCOL_VERSION = "2024-11-05";
+/** MCP revisions this server implements (tools only — stable across these). */
+const SUPPORTED_PROTOCOL_VERSIONS = new Set(["2024-11-05", "2025-03-26", "2025-06-18"]);
 const SERVER_INFO = { name: "pi-reflex", version: "0.0.1" };
 
 /** Hand-written JSON Schema mirrors of the tool parameters (keep in sync with the pi extension). */
@@ -106,8 +108,13 @@ export class ReflexMcpServer {
   private async dispatch(req: JsonRpcRequest): Promise<unknown> {
     switch (req.method) {
       case "initialize": {
+        // MCP version negotiation (PR#2 review #5): echo the requested version only when
+        // this server implements it; otherwise answer with the version we support so the
+        // client can decide how to proceed.
         const p = (req.params ?? {}) as { protocolVersion?: string };
-        return { protocolVersion: p.protocolVersion ?? PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: SERVER_INFO };
+        const requested = typeof p.protocolVersion === "string" ? p.protocolVersion : undefined;
+        const protocolVersion = requested && SUPPORTED_PROTOCOL_VERSIONS.has(requested) ? requested : PROTOCOL_VERSION;
+        return { protocolVersion, capabilities: { tools: {} }, serverInfo: SERVER_INFO };
       }
       case "ping":
         return {};
@@ -152,11 +159,21 @@ export async function resolveEngineFromEnv(env: Record<string, string | undefine
 
 /** Wire the server to stdio. */
 export async function main(getEngine: () => Promise<Engine> = () => resolveEngineFromEnv()): Promise<void> {
-  let engine: Engine | null = null;
-  const cores = createToolCores(async () => {
-    if (!engine) engine = await getEngine();
-    return engine;
-  });
+  // One shared in-flight load (PR#2 review #6): concurrent cold tools/call requests must
+  // not start parallel ensureEngine downloads into the same artifact paths. A failed load
+  // resets the promise so a later request retries.
+  let engineP: Promise<Engine> | null = null;
+  const load = (): Promise<Engine> => {
+    const p = getEngine().catch((e) => {
+      engineP = null;
+      throw e;
+    });
+    engineP = p;
+    return p;
+  };
+  const sharedGetEngine = (): Promise<Engine> => engineP ?? load();
+
+  const cores = createToolCores(sharedGetEngine);
   const server = new ReflexMcpServer(cores);
   const rl = createInterface({ input: process.stdin });
   rl.on("line", (line) => {

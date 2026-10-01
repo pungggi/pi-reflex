@@ -38,7 +38,7 @@ async function call(server: ReflexMcpServer, obj: unknown): Promise<any> {
 }
 
 describe("MCP stdio server", () => {
-  it("initialize echoes the client protocol version", async () => {
+  it("initialize echoes a supported client protocol version", async () => {
     const res = await call(makeServer(), {
       jsonrpc: "2.0",
       id: 1,
@@ -48,6 +48,16 @@ describe("MCP stdio server", () => {
     expect(res.result.protocolVersion).toBe("2025-06-18");
     expect(res.result.serverInfo.name).toBe("pi-reflex");
     expect(res.result.capabilities.tools).toEqual({});
+  });
+
+  it("PR#2 #5: unknown protocol versions negotiate down to a supported one", async () => {
+    const res = await call(makeServer(), {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2099-01-01" },
+    });
+    expect(res.result.protocolVersion).toBe("2024-11-05");
   });
 
   it("notifications return null (no response)", async () => {

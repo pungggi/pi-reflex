@@ -78,9 +78,14 @@ export interface RouteUserTurnResult {
 
 /**
  * The routing decision for a user turn: classify → tier → physical model.
- * Pure (no pi imports) so it is directly testable. Engine or mapping failures
- * fall back rather than block the turn: previous model if any, else a
- * descriptive error pi surfaces as a failed route.
+ * Pure (no pi imports) so it is directly testable. Fallback semantics (PR#2 reviews #2/#3):
+ * - degraded routes (engine failure / nothing to classify) stay `mid` — the effort bump
+ *   never applies, so a dead router cannot select the most expensive model;
+ * - an unmapped (possibly bumped) tier falls back to the PREVIOUS physical model before
+ *   the original recommendation's tier, so an active frontier/mid conversation is never
+ *   silently downgraded to a small model;
+ * - with no previous model, the original tier's mapping is the last resort, then a
+ *   descriptive error pi surfaces as a failed route.
  */
 export async function routeUserTurn(
   getEngine: () => Promise<Engine>,
@@ -90,32 +95,50 @@ export async function routeUserTurn(
   previous?: Model<Api>,
 ): Promise<RouteUserTurnResult> {
   let rec: RouteRecommendation;
-  let tokens = 0;
+  let degraded = false;
   if (message) {
     try {
       const out = await routeRaw(getEngine, message);
       rec = out.rec;
-      tokens = out.inputTokens;
     } catch {
+      degraded = true;
       rec = { tier: "mid", reason: "engine unavailable — defaulting to mid tier", guards: { injection: 0, harmful: 0 } };
     }
   } else {
+    degraded = true;
     rec = { tier: "mid", reason: "no user message to classify — defaulting to mid tier", guards: { injection: 0, harmful: 0 } };
   }
-  const tier = bumpTier(rec.tier, effort === "high" || effort === "xhigh" || effort === "max");
+  const highEffort = effort === "high" || effort === "xhigh" || effort === "max";
+  const tier = degraded ? rec.tier : bumpTier(rec.tier, highEffort);
 
-  const ref = tierFromEnv(deps.env, tier) ?? tierFromEnv(deps.env, rec.tier);
-  const parsed = ref ? parseModelRef(ref) : undefined;
-  const model = (parsed && deps.find(parsed.provider, parsed.id)) || previous;
-  if (!model) {
-    throw new Error(
-      `pi-reflex reflex/auto: tier "${tier}" has no model. Set ${TIER_ENV[tier]}=provider/model-id` +
-        ` (e.g. anthropic/claude-haiku-4-5).`,
-    );
-  }
-  return {
-    model,
-    thinkingLevel: tierThinkingLevel(tier),
-    state: { tier, reason: rec.reason, guards: rec.guards, at: Date.now() },
+  const tryFind = (t: Tier): Model<Api> | undefined => {
+    const ref = tierFromEnv(deps.env, t);
+    const parsed = ref ? parseModelRef(ref) : undefined;
+    return parsed ? deps.find(parsed.provider, parsed.id) : undefined;
   };
+
+  const now = Date.now();
+  const routed = tryFind(tier);
+  if (routed) {
+    return { model: routed, thinkingLevel: tierThinkingLevel(tier), state: { tier, reason: rec.reason, guards: rec.guards, at: now } };
+  }
+  if (previous) {
+    return {
+      model: previous,
+      thinkingLevel: effort,
+      state: { tier, reason: `${rec.reason}; tier "${tier}" unmapped — staying on the previous model`, guards: rec.guards, at: now },
+    };
+  }
+  const original = tryFind(rec.tier);
+  if (original) {
+    return {
+      model: original,
+      thinkingLevel: tierThinkingLevel(rec.tier),
+      state: { tier: rec.tier, reason: `${rec.reason}; tier "${tier}" unmapped — using the ${rec.tier} mapping`, guards: rec.guards, at: now },
+    };
+  }
+  throw new Error(
+    `pi-reflex reflex/auto: tier "${tier}" has no model. Set ${TIER_ENV[tier]}=provider/model-id` +
+      ` (e.g. anthropic/claude-haiku-4-5).`,
+  );
 }

@@ -59,8 +59,12 @@ function withPrefix(content: unknown, prefix: string): unknown {
 export function createInjectionGuard(getEngine: () => Promise<Engine>, opts: GuardOptions = {}) {
   const threshold = opts.threshold ?? 0.75;
   const maxPerRequest = opts.maxPerRequest ?? 3;
-  const seen = new Set<string>(); // content hashes already classified
-  const flagged = new Map<string, number>(); // content hash → stronger flagged probability
+  // Content hash → -1 (classified, not flagged) | ≥0 (flagged: stronger probability).
+  // Bounded with flagged-preserving eviction (PR#2 review #4): flagged entries are never
+  // evicted by the normal cap, so an annotation is not silently dropped from later requests.
+  const cache = new Map<string, number>();
+  const SEEN_CAP = 1024;
+  const FLAGGED_CAP = 4096; // last-resort bound: oldest flagged entries go first
   const stats: GuardStats = { checked: 0, flagged: 0, errors: 0, lastMs: null, tripped: false };
 
   const hash = (s: string): string => {
@@ -72,14 +76,26 @@ export function createInjectionGuard(getEngine: () => Promise<Engine>, opts: Gua
     return (h >>> 0).toString(16) + ":" + s.length;
   };
 
+  /** Drop oldest NON-flagged entries down to the cap; only if that is not enough, oldest flagged. */
+  const evict = () => {
+    for (const [k, v] of cache) {
+      if (cache.size <= SEEN_CAP) break;
+      if (v < 0) cache.delete(k);
+    }
+    for (const [k] of cache) {
+      if (cache.size <= FLAGGED_CAP) break;
+      cache.delete(k);
+    }
+  };
+
   const annotate = <T extends MinimalMessage>(messages: readonly T[]): T[] | undefined => {
     let changed = false;
     const out = messages.map((m) => {
       if (m.role !== "user") return m;
       const text = textOf(m.content);
       if (!text) return m;
-      const p = flagged.get(hash(text));
-      if (p === undefined) return m;
+      const p = cache.get(hash(text));
+      if (p === undefined || p < 0) return m;
       changed = true;
       return { ...m, content: withPrefix(m.content, GUARD_PREFIX(p)) };
     });
@@ -101,8 +117,7 @@ export function createInjectionGuard(getEngine: () => Promise<Engine>, opts: Gua
         if (m.role !== "user") continue;
         const text = textOf(m.content);
         if (!text) continue;
-        const h = hash(text);
-        if (seen.has(h)) continue;
+        if (cache.has(hash(text))) continue;
         fresh.push({ msg: m, text });
         if (fresh.length >= maxPerRequest) break;
       }
@@ -116,11 +131,12 @@ export function createInjectionGuard(getEngine: () => Promise<Engine>, opts: Gua
             const inj = res.answers.injection?.type === "noul" ? (res.answers.injection as NoulAnswer).noul : 0;
             const harm = res.answers.harmful?.type === "noul" ? (res.answers.harmful as NoulAnswer).noul : 0;
             const h = hash(text);
-            seen.add(h);
             stats.checked++;
             if (inj >= threshold || harm >= threshold) {
               stats.flagged++;
-              flagged.set(h, Math.max(inj, harm));
+              cache.set(h, Math.max(inj, harm));
+            } else {
+              cache.set(h, -1);
             }
           }
           stats.errors = 0;
@@ -133,10 +149,7 @@ export function createInjectionGuard(getEngine: () => Promise<Engine>, opts: Gua
         }
       }
 
-      if (seen.size > 1024) {
-        seen.clear();
-        flagged.clear();
-      } // bounded memory
+      evict(); // bounded memory, annotations preserved
 
       return annotate(messages);
     },
