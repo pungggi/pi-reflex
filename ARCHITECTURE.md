@@ -49,11 +49,20 @@ pi-reflex/
 │   ├── calibration.ts #   temp buckets, entropy confidence, softmax
 │   ├── answers.ts     #   system_one answer assembly
 │   └── conformal.ts   #   OUR EDGE: coverage guarantees + risk control
-├── src/lang/analyze.ts  # script detection + Latin LID (dependency-free)
-├── src/router/route.ts  # checkpoint routing decision (pure)
-├── tools/export_onnx.py # DEV-ONLY: checkpoint → fused ONNX (+int8), parity check
-├── reference/laya/      # vendored laya sources (Apache 2.0) used by the export
-└── tests/               # 55 tests mirroring python semantics
+├── src/lang/analyze.ts    # script detection + Latin LID (dependency-free)
+├── src/router/route.ts    # checkpoint routing decision (pure)
+├── src/engine/            # ONNX runtime: Engine (systemOne/batchQuestion), tokenizer, artifacts
+├── src/extension/         # pi surfaces (pi ≥ 0.99)
+│   ├── cores.ts           #   tool cores shared by pi tools + MCP server (pi-free)
+│   ├── provider.ts        #   reflex classifier provider (models.classify ↔ systemOne)
+│   ├── vmodel.ts          #   reflex/auto virtual model (tier routing, sticky continuations)
+│   ├── guard.ts           #   context_with_system prompt-injection guard (opt-in)
+│   └── index.ts           #   tools (outputSchema/namespace/annotations) + wiring
+├── src/mcp/server.ts      # zero-dep stdio MCP server (initialize/tools/list/tools/call)
+├── bin/pi-reflex-mcp.js   # MCP entry: pi mcp add reflex -- node pi-reflex-mcp
+├── tools/export_onnx.py   # DEV-ONLY: checkpoint → fused ONNX (+int8), parity check
+├── reference/laya/        # vendored laya sources (Apache 2.0) used by the export
+└── tests/                 # 168 tests mirroring python semantics + pi surfaces
 ```
 
 ## Roadmap
@@ -73,11 +82,18 @@ pi-reflex/
   parity loading; H2 LICENSE + THIRD_PARTY_NOTICES + README (Apache-2.0 compliance for
   vendored laya code/weights); dev toolchain on vitest 5 — **npm audit: 0 vulnerabilities,
   84/84 tests, typecheck + build clean**.
-- **A3:** Surfaces — pi extension (tools: `decide`/`judge`/`rate`), MCP server,
-  `/v1/systemone` HTTP shim; harness presets: model-router (cheap vs frontier),
-  prompt-injection guard, triage. **Build these against the pinned first-consumer
-  contract: [CONTRACT-harness.md](CONTRACT-harness.md)** (decision shapes, abstain
-  semantics, latency budgets, calibration-corpus schema for pi-continual-harness).
+- **A3 (done):** Surfaces — pi extension: decision tools with structured output
+  (outputSchema/structuredContent, `reflex` namespace, read-only annotations); **classifier
+  provider** `reflex/{multilingual,english,typed-decisions}` (pi ≥ 0.99 `models.classify()` /
+  `ctx.modelRegistry.classify()`, next to hosted Jev classifiers but local/free/private);
+  **virtual model `reflex/auto`** (per-user-turn tier routing via `registerVirtualModel`,
+  sticky continuations/retries, env-mapped `PI_REFLEX_TIER_*`); **MCP server**
+  (`bin/pi-reflex-mcp`, zero-dep stdio JSON-RPC, registerable via `PI_REFLEX_MCP=1` or
+  `pi mcp add`); **prompt-injection guard** on `context_with_system` (pi ≥ 0.87, opt-in,
+  cache + circuit breaker + budget cap). Harness presets against the pinned contract:
+  [CONTRACT-harness.md](CONTRACT-harness.md) (decision shapes, abstain semantics, latency
+  budgets, calibration-corpus schema for pi-continual-harness). Remaining: `/v1/systemone`
+  HTTP shim.
 - **A4:** Benchmarks (`BENCHMARKS.md`): reproduce laya's numbers through the TS
   stack; add conformal coverage plots; latency on CPU int8 vs GPU.
 - **B:** our own checkpoints (RESEARCH.md P0–P4) — CORAL ordinal heads,

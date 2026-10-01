@@ -11,6 +11,9 @@
   "engines": {
     "node": ">=20.11"
   },
+  "bin": {
+    "pi-reflex-mcp": "bin/pi-reflex-mcp.js"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -49,6 +52,7 @@
   },
   "files": [
     "dist",
+    "bin",
     "README.md",
     "LICENSE"
   ],
@@ -77,11 +81,13 @@
     "extensions": ["./extensions"]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": ">=0.99.0",
+    "@earendil-works/pi-ai": "*",
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": "^0.99.2",
+    "@earendil-works/pi-ai": "*",
     "typebox": "*",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0",
