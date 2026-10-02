@@ -22,6 +22,18 @@ guarantees instead of heuristic confidence gating. See
 
 ## Install
 
+**As a pi extension** (pi ≥ 0.99) — the primary way to run pi-reflex:
+
+```bash
+pi install npm:pi-reflex
+```
+
+Registers the `reflex` tools, the local `reflex/*` classifier models, the `reflex/auto`
+tier router, and the opt-in injection guard — see
+[Use as a pi extension](#use-as-a-pi-extension). Update later with `pi update npm:pi-reflex`.
+
+**As a library** — for embedding the decision engine in your own code:
+
 ```bash
 npm install pi-reflex
 ```
@@ -86,7 +98,8 @@ const answers = await engine.batchQuestion(states, {
 pi-reflex ships a pi-package extension (tools for pi coding-agent sessions, **pi ≥ 0.99**):
 
 ```bash
-pi install /absolute/path/to/pi-reflex   # local; npm:pi-reflex when published
+pi install npm:pi-reflex                  # from npm
+pi install /absolute/path/to/pi-reflex    # or a local checkout
 ```
 
 Tools (engine loads lazily on first use; `multilingual` int8 by default). Every tool returns
