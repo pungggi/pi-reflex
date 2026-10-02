@@ -7,6 +7,8 @@ import {
   mapQuestion,
   mapQuestions,
   reflexClassifierModels,
+  registerReflexProvider,
+  REFLEX_PROVIDER_ID,
 } from "../src/extension/provider.js";
 
 function fakeEngine(answer: (qid: string) => SystemOneResult["answers"][string]): Engine {
@@ -102,5 +104,19 @@ describe("reflexClassifierModels", () => {
       expect(m.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
       expect(m.contextWindow).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("registerReflexProvider", () => {
+  it("passes a truthy baseUrl — pi's composer rejects custom models without one", () => {
+    const captured: { id: string; config: Record<string, unknown> }[] = [];
+    const pi = { registerProvider: (id: string, config: Record<string, unknown>) => captured.push({ id, config }) } as never;
+    registerReflexProvider(pi, () => Promise.resolve(fakeEngine(() => ({ type: "noul", noul: 0.5 }))));
+    expect(captured).toHaveLength(1);
+    expect(captured[0].id).toBe(REFLEX_PROVIDER_ID);
+    // Regression: pi throws 'Provider reflex: "baseUrl" is required when defining custom models.'
+    expect(captured[0].config.baseUrl).toBeTruthy();
+    expect(captured[0].config.apiKey).toBeTruthy();
+    expect((captured[0].config.models as { id: string }[]).map((m) => m.id)).toEqual(["multilingual", "english", "typed-decisions"]);
   });
 });
