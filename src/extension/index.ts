@@ -6,12 +6,18 @@
  * artifacts resolve from $PI_REFLEX_ARTIFACTS → cache → HF download (soft-fail
  * with actionable instructions when nothing is available).
  *
- * Registers (pi ≥ 0.99):
- * - 4 decision tools with structured output (namespace `reflex`, read-only)
+ * Registers (pi ≥ 0.99; aligned with pi 1.0's leaner codemode):
+ * - 4 decision tools with structured output (namespace `reflex`, read-only;
+ *   PI_REFLEX_EXPOSURE=codemode|deferred keeps them out of the model's tool list)
  * - the `reflex` classifier provider: local classifier models next to Jev
  * - the `reflex/auto` virtual model: per-turn tier routing (env-mapped models)
  * - optional MCP server registration (PI_REFLEX_MCP=1)
  * - optional prompt-injection guard on context_with_system (PI_REFLEX_GUARD=1)
+ *
+ * pi 1.0 alignment: tool failures return `isError: true` + a structured recovery
+ * payload (codemode scripts read structuredContent and can degrade) instead of
+ * throwing; the startup banner is opt-in (PI_REFLEX_QUIET=0), matching pi's
+ * quieter startup (quietStartup: "header").
  */
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -65,46 +71,75 @@ function makeSlot(deps?: ExtensionDeps) {
     return Engine.fromArtifacts(dir, { int8: slot.quant === "int8" });
   };
 
+  const getNamed = async (name: string): Promise<Engine> => {
+    const cached = slot.engines.get(name);
+    if (cached) return cached;
+    const inFlight = slot.loading.get(name);
+    if (inFlight) return inFlight;
+    const load = (async () => {
+      try {
+        const engine = await loadNamed(name as EngineName);
+        slot.engines.set(name, engine);
+        slot.errors.delete(name);
+        return engine;
+      } catch (e) {
+        const message = `pi-reflex engine '${name}' unavailable: ${(e as Error).message}. Generate artifacts with tools/export_onnx.py or set PI_REFLEX_ARTIFACTS.`;
+        slot.errors.set(name, message);
+        throw new Error(message);
+      } finally {
+        slot.loading.delete(name);
+      }
+    })();
+    slot.loading.set(name, load);
+    return load;
+  };
+
+  // Closures, not object-literal methods: `activate()` destructures `get` off the
+  // returned object, which would strip `this` and break every engine call through
+  // the extension (tools, guard, router) — a latent bug in ≤ 0.1.4 caught by the
+  // pi 1.0 alignment tests.
   return {
     slot,
     /** The default engine (tools, guard, router). */
-    async get(): Promise<Engine> {
-      return this.getNamed(slot.engineName);
-    },
+    get: () => getNamed(slot.engineName),
     /** Engine per classifier model id (multilingual | english | typed-decisions). */
-    async getNamed(name: string): Promise<Engine> {
-      const cached = slot.engines.get(name);
-      if (cached) return cached;
-      const inFlight = slot.loading.get(name);
-      if (inFlight) return inFlight;
-      const load = (async () => {
-        try {
-          const engine = await loadNamed(name as EngineName);
-          slot.engines.set(name, engine);
-          slot.errors.delete(name);
-          return engine;
-        } catch (e) {
-          const message = `pi-reflex engine '${name}' unavailable: ${(e as Error).message}. Generate artifacts with tools/export_onnx.py or set PI_REFLEX_ARTIFACTS.`;
-          slot.errors.set(name, message);
-          throw new Error(message);
-        } finally {
-          slot.loading.delete(name);
-        }
-      })();
-      slot.loading.set(name, load);
-      return load;
-    },
+    getNamed,
   };
 }
 
 export { createToolCores } from "./cores.js";
+
+/**
+ * pi ≥ 1.0 failure convention (agent tool contract): report failures with
+ * `isError: true` instead of throwing — the model still sees `content` as an
+ * error result, but `structuredContent` survives for codemode scripts and
+ * programmatic callers, so they can degrade instead of aborting. Engine errors
+ * already carry the artifacts hint in their message.
+ */
+function errorResult(e: unknown) {
+  const message = e instanceof Error ? e.message : String(e);
+  return {
+    content: [{ type: "text" as const, text: `pi-reflex error: ${message}` }],
+    structuredContent: {
+      type: "error",
+      error: message,
+      recovery:
+        "/reflex shows engine status; engine errors usually mean missing artifacts — generate with tools/export_onnx.py or set PI_REFLEX_ARTIFACTS to a local artifacts dir",
+    } as unknown as JsonValue,
+    isError: true,
+    details: {},
+  };
+}
 
 export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
   const env = deps?.env ?? process.env;
   const { get, getNamed, slot } = makeSlot(deps);
   const cores = createToolCores(get, (ms) => (slot.lastLatencyMs = ms));
 
+  // Startup banner is opt-in (PI_REFLEX_QUIET=0), aligned with pi ≥ 1.0's
+  // quieter startup (quietStartup: "header"); status lives in /reflex.
   pi.on("session_start", async (_event, ctx) => {
+    if (env.PI_REFLEX_QUIET !== "0") return;
     ctx.ui.notify(
       "pi-reflex ready: classifier models (reflex/*), reflex/auto router, decision tools (engine loads on first use)",
       "info",
@@ -135,19 +170,33 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
   });
 
   // ── ④ decision tools (namespace, annotations, structured output) ─────────
-  const exposure = env.PI_REFLEX_EXPOSURE === "codemode" ? ("codemode" as const) : undefined;
+  // `codemode`: listed one line each in the codemode tool, callable from scripts.
+  // `deferred`: not listed anywhere; tool_search finds and activates it (pi ≥ 1.0
+  // keeps deferred tools across resume//reload). Both keep the tools out of the
+  // model's tool list.
+  const exposure =
+    env.PI_REFLEX_EXPOSURE === "codemode" || env.PI_REFLEX_EXPOSURE === "deferred"
+      ? (env.PI_REFLEX_EXPOSURE as "codemode" | "deferred")
+      : undefined;
+  // pi ≥ 1.0 codemode lists each tool as ONE line (its `description`) and keeps
+  // namespace `instructions` out of every prompt — scripts read them with
+  // describeNamespace("reflex"). So descriptions stay crisp one-liners and the
+  // decision guide lives in instructions, prompt-free.
   const namespace = {
     name: "reflex",
-    description: "pi-reflex System 1 decisions: local calibrated choice/bool/score in one forward pass",
+    description: "Local System 1 decisions: calibrated choice/bool/score in one forward pass, no text generation",
     instructions:
-      "Use these instead of asking the model to classify: reflex_decide (routing/triage), reflex_judge (yes/no probability), reflex_rate (ordinal rubric), reflex_route (model tier + guardrails).",
+      "Use these instead of generating an answer for classification-shaped work (routing, triage, rubric scoring, yes/no checks): one local forward pass each (~50–200 ms, no API cost, no text generation). " +
+      "Pick by shape: reflex_decide = one label from a set; reflex_judge = P(true) for a yes/no question; reflex_rate = ordinal rubric with expected level + distribution; reflex_route = model tier + guardrail flags for an incoming user message. " +
+      "Every result carries calibrated probabilities and confidence; treat confidence < 0.5 as abstain and fall back to the model. " +
+      'Probe availability with "reflex_decide" in tools (typeof probes do not work in codemode).',
   };
   const annotations = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
 
   pi.registerTool({
     name: "reflex_decide",
     label: "Decide",
-    description: "Fast calibrated single-choice decision over a state (System 1: no text generation). Use for routing, triage, categorization.",
+    description: "Calibrated single-choice decision (routing, triage, categorization) in one local forward pass — no text generation.",
     promptSnippet: "Make a fast calibrated choice among options (reflex_decide) instead of asking the LLM to classify",
     namespace,
     annotations,
@@ -165,15 +214,19 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       inputTokens: Type.Integer(),
     }),
     async execute(_id, params) {
-      const out = await cores.decide(params);
-      return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
+      try {
+        const out = await cores.decide(params);
+        return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
+      } catch (e) {
+        return errorResult(e);
+      }
     },
   });
 
   pi.registerTool({
     name: "reflex_judge",
     label: "Judge",
-    description: "Calibrated probability that a condition holds for a state (binary, no text generation).",
+    description: "Calibrated P(true) for a yes/no question about a state — no text generation.",
     promptSnippet: "Get a calibrated P(true) for a yes/no question (reflex_judge) instead of asking the LLM to guess",
     namespace,
     annotations,
@@ -189,8 +242,12 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       inputTokens: Type.Integer(),
     }),
     async execute(_id, params) {
-      const out = await cores.judge(params);
-      return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
+      try {
+        const out = await cores.judge(params);
+        return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
+      } catch (e) {
+        return errorResult(e);
+      }
     },
   });
 
@@ -215,15 +272,19 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       inputTokens: Type.Integer(),
     }),
     async execute(_id, params) {
-      const out = await cores.rate(params);
-      return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
+      try {
+        const out = await cores.rate(params);
+        return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
+      } catch (e) {
+        return errorResult(e);
+      }
     },
   });
 
   pi.registerTool({
     name: "reflex_route",
     label: "Route model",
-    description: "Recommend a model tier (small/mid/frontier) + guardrail flags for an incoming message, in one ~50ms pass.",
+    description: "Recommend a model tier (small/mid/frontier) + guardrail flags for an incoming message in one ~50–200 ms pass.",
     promptSnippet: "Use reflex_route on new user messages to pick the model tier cheaply before starting work",
     namespace,
     annotations,
@@ -242,8 +303,12 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       inputTokens: Type.Integer(),
     }),
     async execute(_id, params) {
-      const out = await cores.route(params);
-      return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
+      try {
+        const out = await cores.route(params);
+        return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
+      } catch (e) {
+        return errorResult(e);
+      }
     },
   });
 
@@ -285,6 +350,7 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
         `reflex/auto tiers: ${tiers}`,
         `guard: ${guard ? `${guard.stats.checked} checked, ${guard.stats.flagged} flagged${guard.stats.tripped ? " (tripped)" : ""}` : "off (PI_REFLEX_GUARD=1)"}`,
         `mcp: ${env.PI_REFLEX_MCP === "1" ? "registered" : "off (PI_REFLEX_MCP=1)"}`,
+        `startup banner: ${env.PI_REFLEX_QUIET === "0" ? "on" : "off (PI_REFLEX_QUIET=0)"}`,
       ];
       ctx.ui.notify(`pi-reflex:\n${parts.join("\n")}`, "info");
     },
