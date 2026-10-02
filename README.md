@@ -22,7 +22,7 @@ guarantees instead of heuristic confidence gating. See
 
 ## Install
 
-**As a pi extension** (pi ≥ 0.99) — the primary way to run pi-reflex:
+**As a pi extension** (pi ≥ 0.99, tested through pi 1.0) — the primary way to run pi-reflex:
 
 ```bash
 pi install npm:pi-reflex
@@ -95,7 +95,7 @@ const answers = await engine.batchQuestion(states, {
 
 ## Use as a pi extension
 
-pi-reflex ships a pi-package extension (tools for pi coding-agent sessions, **pi ≥ 0.99**):
+pi-reflex ships a pi-package extension (tools for pi coding-agent sessions, **pi ≥ 0.99, tested through pi 1.0**):
 
 ```bash
 pi install npm:pi-reflex                  # from npm
@@ -111,7 +111,29 @@ and grouped under the `reflex` namespace:
 | `reflex_decide` | calibrated single-choice decision (routing, triage) |
 | `reflex_judge` | calibrated P(true) for a yes/no question |
 | `reflex_rate` | ordinal rubric rating (expected level + distribution) |
-| `reflex_route` | **model tier + guardrails for an incoming message in one ~200 ms pass** |
+| `reflex_route` | **model tier + guardrails for an incoming message in one ~50–200 ms pass** |
+
+### Codemode & tool exposure
+
+pi ≥ 1.0's leaner codemode lists each tool as one line (its `description`) and keeps the
+namespace `instructions` out of the prompt — codemode scripts read them with
+`describeNamespace("reflex")`. Probe availability with `"reflex_judge" in tools` (`typeof`
+probes no longer work in codemode). Every tool declares an `outputSchema`, so scripts receive
+the typed `structuredContent` payloads instead of text; engine failures resolve to
+`{ type: "error", error, recovery }` rather than rejecting, so scripts can degrade:
+
+```js
+if ("reflex_judge" in tools) {
+  const r = await tools.reflex_judge({ state: diff, question: "Does this change delete user data?" });
+  if (r.type === "bool" && r.probability > 0.8) return "destructive — ask the user first";
+}
+```
+
+Keep the tools out of the model's tool list with `PI_REFLEX_EXPOSURE`:
+
+- `codemode` — listed one line each in the `codemode` tool, callable from scripts.
+- `deferred` — not listed anywhere; `tool_search` finds and activates them on demand
+  (pi ≥ 1.0 keeps deferred tools across resume/`/reload`).
 
 ### Classifier models (`reflex/*`)
 
@@ -170,8 +192,9 @@ A zero-dependency stdio MCP server exposing the same four tools to any MCP clien
 Env: `PI_REFLEX_ENGINE` (english|multilingual|typed-decisions), `PI_REFLEX_QUANT` (int8|fp32),
 `PI_REFLEX_ARTIFACTS` (local artifacts dir), `PI_REFLEX_TIER_{SMALL,MID,FRONTIER}` (`provider/model-id`),
 `PI_REFLEX_GUARD` (1|0), `PI_REFLEX_GUARD_THRESHOLD`, `PI_REFLEX_MCP` (1|0),
-`PI_REFLEX_EXPOSURE` (`codemode` keeps the tools out of the model's tool list but callable
-from codemode scripts).
+`PI_REFLEX_EXPOSURE` (`codemode` lists the tools one line each in the codemode tool; `deferred`
+leaves discovery to `tool_search` — both keep them out of the model's tool list),
+`PI_REFLEX_QUIET` (default `1`; `0` shows the startup banner — `/reflex` always shows status).
 
 ## Use as the pi-continual-harness companion
 
