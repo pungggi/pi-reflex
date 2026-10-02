@@ -23,6 +23,13 @@ import type { Questions, QuestionDef } from "../core/types.js";
 export const REFLEX_PROVIDER_ID = "reflex";
 export const REFLEX_CLASSIFIER_API = "reflex-onnx" as ClassifierApi;
 
+/**
+ * Placeholder endpoint. pi's provider composer ("baseUrl" is required when
+ * defining custom models) demands a truthy baseUrl; the classifier path runs
+ * the local ONNX engine and never performs HTTP against it.
+ */
+export const REFLEX_BASE_URL = "http://localhost/pi-reflex";
+
 /** pi-reflex engines that appear as classifier models. */
 export const CLASSIFIER_MODEL_IDS = ["multilingual", "english", "typed-decisions"] as const;
 export type ClassifierModelId = (typeof CLASSIFIER_MODEL_IDS)[number];
@@ -115,13 +122,15 @@ export function reflexClassifierModels() {
 
 /**
  * Register the `reflex` provider with its three local classifier models.
- * `apiKey: "local"` satisfies pi's provider composition (no hosted endpoint);
- * classify dispatch never performs HTTP — the implementation runs the ONNX engine.
+ * `apiKey: "local"` + placeholder `baseUrl` satisfy pi's provider composition
+ * (baseUrl is mandatory for custom models); classify dispatch never performs
+ * HTTP — the implementation runs the ONNX engine.
  */
 export function registerReflexProvider(pi: ExtensionAPI, engineFor: (modelId: string) => Promise<Engine>): void {
   pi.registerProvider(REFLEX_PROVIDER_ID, {
     name: "pi-reflex (local)",
     apiKey: "local",
+    baseUrl: REFLEX_BASE_URL,
     models: reflexClassifierModels(),
     classifiers: { [REFLEX_CLASSIFIER_API]: createReflexClassifier(engineFor) },
   });
