@@ -49,6 +49,12 @@ if (!CORPUS && !SYNTHETIC) {
   console.error("usage: node tools/eval-corpus.mjs --corpus <dedupe-pairs.jsonl> | --synthetic <n> [--clef] [--engine multilingual|english|typed-decisions]");
   process.exit(2);
 }
+// Cost guard must not be negative: slice(0, -N) would select everything EXCEPT the
+// last N records and silently run thousands of paid hosted calls (review #3).
+if (!Number.isFinite(LIMIT) || LIMIT < 1) {
+  console.error(`--limit must be a positive integer (got ${arg("limit", "200")})`);
+  process.exit(2);
+}
 
 // Deterministic RNG (contract invariant: same input ⇒ same result).
 function rng(seed) {
@@ -61,7 +67,10 @@ function rng(seed) {
 
 // ── records ──────────────────────────────────────────────────────────────────
 
-/** CONTRACT-harness.md §4: { v, kind: "dedupe_pair", a, b, label: "dup"|"not_dup", meta? } */
+/** CONTRACT-harness.md §4: { v, kind: "dedupe_pair", a, b, label: "dup"|"not_dup", meta? }.
+ *  Records without non-empty string contents are counted as malformed — String(undefined)
+ *  would otherwise create labeled "undefined"/"undefined" pairs that silently contaminate
+ *  accuracy and conformal calibration (review #1). */
 function loadCorpus(path) {
   const lines = fs.readFileSync(path, "utf8").split("\n").filter((l) => l.trim());
   const records = [];
@@ -69,8 +78,13 @@ function loadCorpus(path) {
   for (const line of lines) {
     try {
       const r = JSON.parse(line);
-      if (r.kind === "dedupe_pair" && (r.label === "dup" || r.label === "not_dup")) {
-        records.push({ a: String(r.a), b: String(r.b), dup: r.label === "dup", kind: r.meta?.kinds?.[0] ?? "memory", source: r.source ?? "corpus" });
+      const wellFormed =
+        r.kind === "dedupe_pair" &&
+        (r.label === "dup" || r.label === "not_dup") &&
+        typeof r.a === "string" && r.a.trim().length > 0 &&
+        typeof r.b === "string" && r.b.trim().length > 0;
+      if (wellFormed) {
+        records.push({ a: r.a, b: r.b, dup: r.label === "dup", source: r.source ?? "corpus" });
       } else skipped++;
     } catch {
       skipped++;
@@ -101,11 +115,11 @@ function synthetic(n) {
     const dup = pick() < 0.5;
     const f = facts[Math.floor(pick() * facts.length)];
     if (dup) {
-      out.push({ a: f, b: paraphrase(f), dup: true, kind: "memory", source: "synthetic" });
+      out.push({ a: f, b: paraphrase(f), dup: true, source: "synthetic" });
     } else {
       let g = facts[Math.floor(pick() * facts.length)];
       while (g === f) g = facts[Math.floor(pick() * facts.length)];
-      out.push({ a: f, b: g, dup: false, kind: "memory", source: "synthetic" });
+      out.push({ a: f, b: g, dup: false, source: "synthetic" });
     }
   }
   return out;
@@ -114,6 +128,10 @@ function synthetic(n) {
 // ── arms ─────────────────────────────────────────────────────────────────────
 
 const D1_QUESTION = { same: { type: "noul", instructions: "Are these two items the same durable fact?" } };
+/** The deployed D1 call site hardcodes kind: "memory" (src/harness/companion.ts) — the
+ *  eval must feed the model the exact same state shape, NOT meta.kinds per record,
+ *  or accuracy/conformal measure a different input than production (review #2). */
+const D1_KIND = "memory";
 
 async function reflexArm(records) {
   const url = ARTIFACTS ?? new URL(`../artifacts/${ENGINE_NAME}`, import.meta.url).pathname.replace(/^\/(\w:)/i, "$1");
@@ -121,7 +139,7 @@ async function reflexArm(records) {
   const out = [];
   for (const r of records) {
     const t0 = performance.now();
-    const res = await engine.systemOne({ a: r.a, b: r.b, kind: r.kind }, D1_QUESTION);
+    const res = await engine.systemOne({ a: r.a, b: r.b, kind: D1_KIND }, D1_QUESTION);
     out.push({ p: res.answers.same.noul, dup: r.dup, ms: performance.now() - t0, tokens: res.usage.input_tokens });
   }
   return out;
@@ -140,7 +158,7 @@ async function clefArm(records) {
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: CLEF_MODEL,
-        input: { state: { a: r.a, b: r.b, kind: r.kind }, questions: D1_QUESTION }, // noul is the wire type
+        input: { state: { a: r.a, b: r.b, kind: D1_KIND }, questions: D1_QUESTION }, // noul is the wire type
       }),
     });
     const body = await resp.json();
@@ -156,11 +174,13 @@ async function clefArm(records) {
 // ── metrics ──────────────────────────────────────────────────────────────────
 
 function quantile(sorted, q) {
+  if (!sorted.length) return NaN; // zero-row inputs must not crash the report (review #4)
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
 }
 
 function metrics(rows) {
   const n = rows.length;
+  if (n === 0) return { n: 0, accuracy: NaN, ece10: NaN, auc: NaN, p50ms: NaN, p95ms: NaN, tokens: 0, pos: 0, neg: 0 };
   const correct = rows.filter((r) => (r.p >= 0.5) === r.dup).length;
   // ECE, 10 equal-width bins on p(dup)
   const bins = Array.from({ length: 10 }, () => ({ n: 0, conf: 0, acc: 0 }));
@@ -235,8 +255,17 @@ const syntheticResult = synthetic(SYNTHETIC);
 const records0 = SYNTHETIC ? { records: syntheticResult, skipped: 0 } : loadCorpus(CORPUS);
 const records = records0.records.slice(0, LIMIT);
 if (SYNTHETIC) console.log(`# synthetic self-test — ${records.length} generated pairs (harness validation ONLY, not a quality signal)`);
-else console.log(`# corpus ${CORPUS} — ${records.length} dedupe pairs (${records0.skipped} malformed lines skipped)`);
+else console.log(`# corpus ${CORPUS} — ${records.length} usable dedupe pairs (${records0.skipped} malformed lines skipped)`);
 
+// Empty export, all-skipped rows, or a limit below 1: report and exit cleanly
+// instead of crashing on undefined quantiles (review #4).
+if (records.length === 0) {
+  console.log("! no usable records — export with /harness export-corpus or use --synthetic <n>");
+  process.exit(0);
+}
+
+const fmtPct = (x) => (Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : "n/a");
+const fmtNum = (x, d = 3) => (Number.isFinite(x) ? x.toFixed(d) : "n/a");
 const report = { engine: ENGINE_NAME, model: null, clef: null };
 
 {
@@ -246,10 +275,10 @@ const report = { engine: ENGINE_NAME, model: null, clef: null };
   report.model = { ...m, conformal: c };
   console.log(`\n## reflex/${ENGINE_NAME} (local, int8, CPU)`);
   console.log(`n=${m.n} (dup ${m.pos} / not-dup ${m.neg})`);
-  console.log(`accuracy@0.5  ${(m.accuracy * 100).toFixed(1)}%`);
-  console.log(`ECE-10        ${m.ece10.toFixed(3)}`);
+  console.log(`accuracy@0.5  ${fmtPct(m.accuracy)}`);
+  console.log(`ECE-10        ${fmtNum(m.ece10)}`);
   console.log(`AUC           ${Number.isNaN(m.auc) ? "n/a (one class)" : m.auc.toFixed(3)}`);
-  console.log(`latency       p50 ${m.p50ms.toFixed(0)} ms · p95 ${m.p95ms.toFixed(0)} ms · tokens ${m.tokens}`);
+  console.log(`latency       p50 ${fmtNum(m.p50ms, 0)} ms · p95 ${fmtNum(m.p95ms, 0)} ms · tokens ${m.tokens}`);
   if (c.coverage !== undefined) {
     console.log(`conformal     α=${c.alpha} · coverage ${(c.coverage * 100).toFixed(1)}% · abstain ${(c.abstainRate * 100).toFixed(1)}% · act-accuracy ${Number.isFinite(c.actAccuracy) ? (c.actAccuracy * 100).toFixed(1) + "%" : "n/a"} (${c.actedN} acted, calib ${c.calib}/eval ${c.eval})`);
   } else {
@@ -264,10 +293,10 @@ if (CLEF) {
     report.clef = { model: CLEF_MODEL, ...m };
     console.log(`\n## ${CLEF_MODEL} (hosted, network RTT included)`);
     console.log(`n=${m.n} (dup ${m.pos} / not-dup ${m.neg})`);
-    console.log(`accuracy@0.5  ${(m.accuracy * 100).toFixed(1)}%`);
-    console.log(`ECE-10        ${m.ece10.toFixed(3)}`);
+    console.log(`accuracy@0.5  ${fmtPct(m.accuracy)}`);
+    console.log(`ECE-10        ${fmtNum(m.ece10)}`);
     console.log(`AUC           ${Number.isNaN(m.auc) ? "n/a (one class)" : m.auc.toFixed(3)}`);
-    console.log(`latency       p50 ${m.p50ms.toFixed(0)} ms · p95 ${m.p95ms.toFixed(0)} ms · tokens ${m.tokens} (billed)`);
+    console.log(`latency       p50 ${fmtNum(m.p50ms, 0)} ms · p95 ${fmtNum(m.p95ms, 0)} ms · tokens ${m.tokens} (billed)`);
   } catch (e) {
     console.error(`\n! clef arm skipped: ${e.message}`);
     process.exitCode = 3;
