@@ -22,7 +22,7 @@ guarantees instead of heuristic confidence gating. See
 
 ## Install
 
-**As a pi extension** (pi ≥ 0.99, tested through pi 1.0) — the primary way to run pi-reflex:
+**As a pi extension** (pi ≥ 0.99, tested through pi 1.0.1) — the primary way to run pi-reflex:
 
 ```bash
 pi install npm:pi-reflex
@@ -95,7 +95,7 @@ const answers = await engine.batchQuestion(states, {
 
 ## Use as a pi extension
 
-pi-reflex ships a pi-package extension (tools for pi coding-agent sessions, **pi ≥ 0.99, tested through pi 1.0**):
+pi-reflex ships a pi-package extension (tools for pi coding-agent sessions, **pi ≥ 0.99, tested through pi 1.0.1**):
 
 ```bash
 pi install npm:pi-reflex                  # from npm
@@ -112,6 +112,13 @@ and grouped under the `reflex` namespace:
 | `reflex_judge` | calibrated P(true) for a yes/no question |
 | `reflex_rate` | ordinal rubric rating (expected level + distribution) |
 | `reflex_route` | **model tier + guardrails for an incoming message in one ~50–200 ms pass** |
+
+On pi ≥ 1.0.1 the extension also registers compact tool renderers (`pi.registerToolRenderer`):
+tool calls draw as one line — `P(true)=0.42 · conf 70% · 12 tok` — colored by confidence
+(success ≥ 0.5, warning = abstain, red = error), with the full probability distribution on
+ctrl+e expansion. The resolver matches by name, so the same rendering covers the extension's
+tools **and** their MCP-served twins (`mcp__reflex__reflex_*`), including reflex calls in
+resumed sessions and HTML exports drawn before the server connected.
 
 ### Codemode & tool exposure
 

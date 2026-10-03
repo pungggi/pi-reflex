@@ -9,6 +9,9 @@
  * Registers (pi ≥ 0.99; aligned with pi 1.0's leaner codemode):
  * - 4 decision tools with structured output (namespace `reflex`, read-only;
  *   PI_REFLEX_EXPOSURE=codemode|deferred keeps them out of the model's tool list)
+ * - compact tool renderers via pi.registerToolRenderer (pi ≥ 1.0.1): one-line
+ *   results for the registered tools, the MCP-served copies
+ *   (mcp__reflex__reflex_*), and reflex calls in resumed sessions / HTML exports
  * - the `reflex` classifier provider: local classifier models next to Jev
  * - the `reflex/auto` virtual model: per-turn tier routing (env-mapped models)
  * - optional MCP server registration (PI_REFLEX_MCP=1)
@@ -29,6 +32,7 @@ import { createToolCores } from "./cores.js";
 import { registerReflexProvider, REFLEX_PROVIDER_ID } from "./provider.js";
 import { latestUserText, routeUserTurn, type ReflexAutoState } from "./vmodel.js";
 import { createInjectionGuard } from "./guard.js";
+import { reflexToolRendererResolver } from "./renderers.js";
 
 export interface ExtensionDeps {
   loadEngine?: (name: EngineName) => Promise<Engine>;
@@ -312,7 +316,14 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
     },
   });
 
-  // ── ⑤ optional MCP registration (default off: spawns a node process) ─────
+  // ── ⑤ compact tool renderers (pi ≥ 1.0.1 registerToolRenderer) ─────────────
+  // Resolves by NAME, so the same one-line rendering covers the four registered
+  // tools above, their MCP-served twins (mcp__reflex__reflex_*), and reflex calls
+  // in resumed sessions / HTML exports drawn before any tool or server existed.
+  // Cosmetic only — guarded so pi ≥ 0.99 hosts without the API keep working.
+  if (typeof pi.registerToolRenderer === "function") pi.registerToolRenderer(reflexToolRendererResolver);
+
+  // ── ⑥ optional MCP registration (default off: spawns a node process) ─────
   if (env.PI_REFLEX_MCP === "1") {
     const serverJs = fileURLToPath(new URL("../mcp/server.js", import.meta.url));
     pi.registerMcpServer("reflex", {
@@ -323,7 +334,7 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
     });
   }
 
-  // ── ⑥ optional prompt-injection guard (default off; PI_REFLEX_GUARD=1) ───
+  // ── ⑦ optional prompt-injection guard (default off; PI_REFLEX_GUARD=1) ───
   const guard = env.PI_REFLEX_GUARD === "1" ? createInjectionGuard(get, { threshold: Number(env.PI_REFLEX_GUARD_THRESHOLD) || 0.75 }) : null;
   if (guard) {
     pi.on("context_with_system", async (event) => {
