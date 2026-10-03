@@ -19,8 +19,10 @@
  *
  * pi 1.0 alignment: tool failures return `isError: true` + a structured recovery
  * payload (codemode scripts read structuredContent and can degrade) instead of
- * throwing; the startup banner is opt-in (PI_REFLEX_QUIET=0), matching pi's
- * quieter startup (quietStartup: "header").
+ * throwing. The startup banner is on by default (PI_REFLEX_QUIET=1 silences it).
+ * `deferred` exposure self-checks on session_start: without an active tool_search
+ * the deferred tools are unreachable, so the extension warns (and activates
+ * tool_search when nothing else could reach them).
  */
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -135,19 +137,78 @@ function errorResult(e: unknown) {
   };
 }
 
+/**
+ * Message for PI_REFLEX_EXPOSURE=deferred sessions without an active tool_search.
+ * `codemodeActive` distinguishes "reachable from scripts that know the names but
+ * undiscoverable" from "unreachable, period".
+ */
+function deferredWithoutToolSearch(codemodeActive: boolean): string {
+  const fix = 'enable tool_search ("defaultTools": ["+codemode", "+tool_search"]) or set PI_REFLEX_EXPOSURE=codemode';
+  if (codemodeActive) {
+    return `pi-reflex: PI_REFLEX_EXPOSURE=deferred but tool_search is not active — the reflex tools are only callable from codemode scripts that already know their names. ${fix}.`;
+  }
+  return `pi-reflex: PI_REFLEX_EXPOSURE=deferred but neither tool_search nor codemode is active — the reflex tools are unreachable this session. ${fix}.`;
+}
+
 export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
   const env = deps?.env ?? process.env;
   const { get, getNamed, slot } = makeSlot(deps);
   const cores = createToolCores(get, (ms) => (slot.lastLatencyMs = ms));
 
-  // Startup banner is opt-in (PI_REFLEX_QUIET=0), aligned with pi ≥ 1.0's
-  // quieter startup (quietStartup: "header"); status lives in /reflex.
-  pi.on("session_start", async (_event, ctx) => {
-    if (env.PI_REFLEX_QUIET !== "0") return;
-    ctx.ui.notify(
-      "pi-reflex ready: classifier models (reflex/*), reflex/auto router, decision tools (engine loads on first use)",
-      "info",
+  // `codemode`: listed one line each in the codemode tool, callable from scripts.
+  // `deferred`: not listed anywhere; tool_search finds and activates it (pi ≥ 1.0
+  // keeps deferred tools across resume//reload). Both keep the tools out of the
+  // model's tool list.
+  const exposure =
+    env.PI_REFLEX_EXPOSURE === "codemode" || env.PI_REFLEX_EXPOSURE === "deferred"
+      ? (env.PI_REFLEX_EXPOSURE as "codemode" | "deferred")
+      : undefined;
+  // Unrecognized values used to fall back to `direct` silently — e.g. a user
+  // setting `hidden` (a valid pi exposure this env does not support) would get the
+  // tools declared to the model against their intent. Warn loudly instead;
+  // `direct` is the documented explicit no-op and stays silent.
+  if (
+    env.PI_REFLEX_EXPOSURE &&
+    env.PI_REFLEX_EXPOSURE !== "codemode" &&
+    env.PI_REFLEX_EXPOSURE !== "deferred" &&
+    env.PI_REFLEX_EXPOSURE !== "direct"
+  ) {
+    console.error(
+      `pi-reflex: ignoring PI_REFLEX_EXPOSURE='${env.PI_REFLEX_EXPOSURE}' — expected codemode | deferred | direct; using direct`,
     );
+  }
+
+  // Startup banner on by default (PI_REFLEX_QUIET=1 silences); status lives in /reflex.
+  // Same handler enforces the deferred contract: deferred tools are only reachable
+  // via an active tool_search (or codemode scripts that already know the names), so
+  // warn when tool_search is missing — and when nothing could reach the tools at
+  // all, activate tool_search if the host registered it. Introspection APIs are
+  // guarded so pi ≥ 0.99 hosts without them skip the check.
+  pi.on("session_start", async (_event, ctx) => {
+    if (env.PI_REFLEX_QUIET !== "1") {
+      ctx.ui.notify(
+        "pi-reflex ready: classifier models (reflex/*), reflex/auto router, decision tools (engine loads on first use)",
+        "info",
+      );
+    }
+    if (exposure !== "deferred" || typeof pi.getActiveTools !== "function") return;
+    const active = pi.getActiveTools();
+    if (active.includes("tool_search")) return;
+    if (active.includes("codemode")) {
+      ctx.ui.notify(deferredWithoutToolSearch(true), "warning");
+      return;
+    }
+    const hostHasToolSearch =
+      typeof pi.getAllTools === "function" && pi.getAllTools().some((tool) => tool.name === "tool_search");
+    if (hostHasToolSearch && typeof pi.setActiveTools === "function") {
+      pi.setActiveTools([...active, "tool_search"]);
+      ctx.ui.notify(
+        `${deferredWithoutToolSearch(false)} Activated tool_search for this session so the deferred reflex tools stay reachable.`,
+        "warning",
+      );
+      return;
+    }
+    ctx.ui.notify(deferredWithoutToolSearch(false), "warning");
   });
 
   // ── ② classifier provider ────────────────────────────────────────────────
@@ -174,14 +235,7 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
   });
 
   // ── ④ decision tools (namespace, annotations, structured output) ─────────
-  // `codemode`: listed one line each in the codemode tool, callable from scripts.
-  // `deferred`: not listed anywhere; tool_search finds and activates it (pi ≥ 1.0
-  // keeps deferred tools across resume//reload). Both keep the tools out of the
-  // model's tool list.
-  const exposure =
-    env.PI_REFLEX_EXPOSURE === "codemode" || env.PI_REFLEX_EXPOSURE === "deferred"
-      ? (env.PI_REFLEX_EXPOSURE as "codemode" | "deferred")
-      : undefined;
+  // (exposure is resolved above so session_start can enforce the deferred contract)
   // pi ≥ 1.0 codemode lists each tool as ONE line (its `description`) and keeps
   // namespace `instructions` out of every prompt — scripts read them with
   // describeNamespace("reflex"). So descriptions stay crisp one-liners and the
@@ -355,13 +409,19 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       const tiers = ["SMALL", "MID", "FRONTIER"]
         .map((t) => env[`PI_REFLEX_TIER_${t}`] ?? "-")
         .join(" | ");
+      const activeTools = typeof pi.getActiveTools === "function" ? pi.getActiveTools() : null;
+      const exposureLine =
+        exposure === "deferred" && activeTools
+          ? ` · tool_search ${activeTools.includes("tool_search") ? "active" : "NOT active — deferred tools unreachable"}`
+          : "";
       const parts = [
         `engine: ${status}${slot.lastLatencyMs ? ` · last call ${slot.lastLatencyMs.toFixed(0)}ms` : ""}`,
         `classifier: ${REFLEX_PROVIDER_ID}/multilingual|english|typed-decisions`,
         `reflex/auto tiers: ${tiers}`,
+        `exposure: ${exposure ?? "direct (declared to the model)"}${exposureLine}`,
         `guard: ${guard ? `${guard.stats.checked} checked, ${guard.stats.flagged} flagged${guard.stats.tripped ? " (tripped)" : ""}` : "off (PI_REFLEX_GUARD=1)"}`,
         `mcp: ${env.PI_REFLEX_MCP === "1" ? "registered" : "off (PI_REFLEX_MCP=1)"}`,
-        `startup banner: ${env.PI_REFLEX_QUIET === "0" ? "on" : "off (PI_REFLEX_QUIET=0)"}`,
+        `startup banner: ${env.PI_REFLEX_QUIET === "1" ? "off (PI_REFLEX_QUIET=1)" : "on"}`,
       ];
       ctx.ui.notify(`pi-reflex:\n${parts.join("\n")}`, "info");
     },

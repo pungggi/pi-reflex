@@ -243,3 +243,31 @@ describe("review fix: pi's real renderResult contract (PR #15)", () => {
     expect(lines[0]).not.toContain("P(true)=0.00");
   });
 });
+
+describe("follow-up fixes: route text format + scientific notation", () => {
+  it("route text now carries [N tok]; the token count renders in real TUI rendering", () => {
+    const r = resultOf({
+      content: [{ type: "text", text: "tier: mid — balanced complexity (complexity=balanced needs_code=0.80 long_context=0.10 injection=0.02 harmful=0.01) [26 tok]" }],
+    });
+    expect(render("reflex_route", r)).toEqual(["tier: mid — balanced complexity · 26 tok"]);
+  });
+
+  it("route detail omits undefined signals instead of printing complexity=undefined", () => {
+    const r = resultOf({
+      content: [{ type: "text", text: "tier: small — trivial request (needs_code=0.12 injection=0.61 harmful=0.03) [12 tok]" }],
+    });
+    const expanded = render("reflex_route", r, true);
+    expect(expanded[0]).toBe("tier: small — trivial request · ⚠ injection 0.61 · 12 tok");
+    expect(expanded.join("\n")).not.toContain("complexity=");
+    expect(expanded[1]).toBe("injection=0.61 harmful=0.03");
+    expect(expanded[2]).toBe("needs_code=0.12");
+    expect(expanded).toHaveLength(3); // no complexity / long_context lines — they were undefined
+  });
+
+  it("scientific-notation probabilities still parse (P(true)=1e-7)", () => {
+    const r = resultOf({ content: [{ type: "text", text: "P(true)=1e-7 (conf 99.9%) [5 tok]" }] });
+    expect(render("reflex_judge", r)).toEqual(["P(true)=0.00 · conf 100% · 5 tok"]);
+    const score = resultOf({ content: [{ type: "text", text: "score 1.5e-8/3 (conf 40.0%) [9 tok]" }] });
+    expect(render("reflex_rate", score)).toEqual(["score 0.0/3 · conf 40% · 9 tok"]);
+  });
+});

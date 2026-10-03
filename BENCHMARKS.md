@@ -91,6 +91,7 @@ exposes them through the same classifier interface; the runner uses the identica
 node tools/eval-corpus.mjs --synthetic 40                     # self-test: machinery only, no corpus/creds
 node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl        # reflex arm (local, free)
 node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl --clef # + hosted clef (CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID)
+# append --json for a machine-readable report; `npm run build` first (arms import ../dist)
 ```
 
 Metrics: accuracy@0.5, ECE-10, AUC, latency p50/p95, tokens — plus conformal coverage, abstain

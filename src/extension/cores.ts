@@ -99,9 +99,21 @@ export function createToolCores(getEngine: () => Promise<Engine>, onLatency?: (m
     async route(params: { message: string }): Promise<ToolCoreOutput> {
       const out = await timed(() => routeRaw(getEngine, params.message));
       const { rec, complexity, needsCode, longContext, inputTokens } = out;
-      const detail = `complexity=${complexity} needs_code=${needsCode?.toFixed(2)} long_context=${longContext?.toFixed(2)} injection=${rec.guards.injection.toFixed(2)} harmful=${rec.guards.harmful.toFixed(2)}`;
+      // Undefined signals are omitted, not rendered as `complexity=undefined`: this
+      // text is what the model reads AND what the compact renderer parses back —
+      // a literal "undefined" leaks into both. The `[N tok]` suffix matches
+      // fmtResult so all four tool texts carry usage symmetrically.
+      const detail = [
+        complexity !== undefined ? `complexity=${complexity}` : undefined,
+        needsCode !== undefined ? `needs_code=${needsCode.toFixed(2)}` : undefined,
+        longContext !== undefined ? `long_context=${longContext.toFixed(2)}` : undefined,
+        `injection=${rec.guards.injection.toFixed(2)}`,
+        `harmful=${rec.guards.harmful.toFixed(2)}`,
+      ]
+        .filter((part): part is string => part !== undefined)
+        .join(" ");
       return {
-        text: `tier: ${rec.tier} — ${rec.reason} (${detail})`,
+        text: `tier: ${rec.tier} — ${rec.reason} (${detail}) [${inputTokens} tok]`,
         data: {
           type: "route",
           tier: rec.tier,

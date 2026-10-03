@@ -1,11 +1,14 @@
 /**
  * pi 1.0 alignment (feat/pi-1.0-alignment):
  * - PI_REFLEX_EXPOSURE accepts `deferred` next to `codemode` (unknown → default direct)
- * - startup banner is quiet by default; opt-in via PI_REFLEX_QUIET=0
+ * - startup banner is on by default; PI_REFLEX_QUIET=1 silences it
+ * - `deferred` exposure enforces its own contract on session_start: without an
+ *   active tool_search it warns — and when nothing could reach the tools at all
+ *   (no codemode either), it activates tool_search if the host registered it
  * - tool failures return isError results with structured recovery payloads
  *   (codemode scripts read structuredContent) instead of throwing
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Engine } from "../src/engine/engine.js";
 import type { SystemOneResult } from "../src/core/types.js";
 import type { EngineName } from "../src/engine/download.js";
@@ -37,10 +40,27 @@ interface CapturedTool {
   }>;
 }
 
-function activateCapturing(env: Record<string, string | undefined>, loadEngine?: ExtensionDeps["loadEngine"]) {
+interface Notification {
+  message: string;
+  level: string;
+}
+
+interface ActivateOpts {
+  /** Tools declared to the model (pi.getActiveTools). */
+  activeTools?: string[];
+  /** All registered tools (pi.getAllTools); defaults to just tool_search. */
+  allToolNames?: string[] | null;
+  /** Simulate a pi ≥ 0.99 host without the tool introspection APIs. */
+  noIntrospection?: boolean;
+}
+
+function activateCapturing(env: Record<string, string | undefined>, loadEngine?: ExtensionDeps["loadEngine"], opts: ActivateOpts = {}) {
   const tools: CapturedTool[] = [];
   const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<unknown>>();
-  const pi = {
+  const activeTools = opts.activeTools ?? [];
+  const allToolNames = opts.allToolNames === null ? [] : (opts.allToolNames ?? ["tool_search"]);
+  const setActiveCalls: string[][] = [];
+  const pi: Record<string, unknown> = {
     registerProvider: () => {},
     registerVirtualModel: () => {},
     registerTool: (def: CapturedTool) => tools.push(def),
@@ -48,9 +68,14 @@ function activateCapturing(env: Record<string, string | undefined>, loadEngine?:
     registerMcpServer: () => {},
     registerToolRenderer: () => {},
     on: (event: string, handler: (event: unknown, ctx: unknown) => Promise<unknown>) => handlers.set(event, handler),
-  } as never;
-  activate(pi, { env, loadEngine });
-  return { tools, handlers };
+  };
+  if (!opts.noIntrospection) {
+    pi.getActiveTools = () => [...activeTools];
+    pi.getAllTools = () => allToolNames.map((name) => ({ name }));
+    pi.setActiveTools = (names: string[]) => setActiveCalls.push([...names]);
+  }
+  activate(pi as never, { env, loadEngine });
+  return { tools, handlers, setActiveCalls };
 }
 
 describe("PI_REFLEX_EXPOSURE (pi ≥ 1.0 deferred exposure)", () => {
@@ -64,27 +89,109 @@ describe("PI_REFLEX_EXPOSURE (pi ≥ 1.0 deferred exposure)", () => {
     expect(activateCapturing({}).tools.every((t) => t.exposure === undefined)).toBe(true);
     expect(activateCapturing({ PI_REFLEX_EXPOSURE: "hidden" }).tools.every((t) => t.exposure === undefined)).toBe(true);
   });
+
+  it("warns on unrecognized values (stderr); direct is the silent explicit no-op", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      activateCapturing({ PI_REFLEX_EXPOSURE: "hidden" });
+      expect(err).toHaveBeenCalledTimes(1);
+      expect(String(err.mock.calls[0][0])).toMatch(/PI_REFLEX_EXPOSURE='hidden'.*codemode \| deferred \| direct/);
+      err.mockClear();
+      activateCapturing({ PI_REFLEX_EXPOSURE: "model-only" });
+      expect(err).toHaveBeenCalledTimes(1); // any unsupported value warns, not just 'hidden'
+      err.mockClear();
+      activateCapturing({ PI_REFLEX_EXPOSURE: "direct" });
+      activateCapturing({ PI_REFLEX_EXPOSURE: "codemode" });
+      activateCapturing({ PI_REFLEX_EXPOSURE: "deferred" });
+      expect(err).not.toHaveBeenCalled(); // recognized values stay silent
+    } finally {
+      err.mockRestore();
+    }
+  });
 });
 
-describe("startup banner (pi quietStartup alignment)", () => {
-  async function bannerCalls(env: Record<string, string | undefined>): Promise<string[]> {
-    const { handlers } = activateCapturing(env);
-    const calls: string[] = [];
+describe("startup banner (on by default; PI_REFLEX_QUIET=1 silences)", () => {
+  async function sessionNotifications(env: Record<string, string | undefined>, opts: ActivateOpts = {}): Promise<Notification[]> {
+    const { handlers } = activateCapturing(env, undefined, opts);
+    const calls: Notification[] = [];
     const handler = handlers.get("session_start");
     expect(handler).toBeDefined();
-    await handler!(undefined, { ui: { notify: (m: string) => calls.push(m) } });
+    await handler!(undefined, { ui: { notify: (message: string, level = "info") => calls.push({ message, level }) } });
     return calls;
   }
 
-  it("is quiet by default and with PI_REFLEX_QUIET=1", async () => {
-    expect(await bannerCalls({})).toEqual([]);
-    expect(await bannerCalls({ PI_REFLEX_QUIET: "1" })).toEqual([]);
+  it("is shown by default and with PI_REFLEX_QUIET=0", async () => {
+    for (const env of [{}, { PI_REFLEX_QUIET: "0" }]) {
+      const calls = await sessionNotifications(env);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.message).toMatch(/pi-reflex ready/);
+      expect(calls[0]!.level).toBe("info");
+    }
   });
 
-  it("is shown with PI_REFLEX_QUIET=0", async () => {
-    const calls = await bannerCalls({ PI_REFLEX_QUIET: "0" });
+  it("is silenced with PI_REFLEX_QUIET=1", async () => {
+    expect(await sessionNotifications({ PI_REFLEX_QUIET: "1" })).toEqual([]);
+  });
+});
+
+describe("deferred exposure without tool_search (session_start guard)", () => {
+  const QUIET = { PI_REFLEX_EXPOSURE: "deferred", PI_REFLEX_QUIET: "1" };
+
+  it("no warning when tool_search is active", async () => {
+    const { handlers, setActiveCalls } = activateCapturing({ ...QUIET }, undefined, { activeTools: ["tool_search"] });
+    const calls: Notification[] = [];
+    await handlers.get("session_start")!(undefined, { ui: { notify: (m: string, l: string) => calls.push({ message: m, level: l }) } });
+    expect(calls).toEqual([]);
+    expect(setActiveCalls).toEqual([]);
+  });
+
+  it("warns (no self-heal) when codemode is active but tool_search is not", async () => {
+    const { handlers, setActiveCalls } = activateCapturing({ ...QUIET }, undefined, { activeTools: ["codemode"] });
+    const calls: Notification[] = [];
+    await handlers.get("session_start")!(undefined, { ui: { notify: (m: string, l: string) => calls.push({ message: m, level: l }) } });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatch(/pi-reflex ready/);
+    expect(calls[0]!.level).toBe("warning");
+    expect(calls[0]!.message).toMatch(/already know their names/);
+    expect(calls[0]!.message).toMatch(/\+tool_search/);
+    expect(setActiveCalls).toEqual([]);
+  });
+
+  it("activates tool_search when nothing could reach the tools", async () => {
+    const { handlers, setActiveCalls } = activateCapturing({ ...QUIET });
+    const calls: Notification[] = [];
+    await handlers.get("session_start")!(undefined, { ui: { notify: (m: string, l: string) => calls.push({ message: m, level: l }) } });
+    expect(setActiveCalls).toEqual([["tool_search"]]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.level).toBe("warning");
+    expect(calls[0]!.message).toMatch(/unreachable this session/);
+    expect(calls[0]!.message).toMatch(/Activated tool_search/);
+  });
+
+  it("warns without self-heal when the tool_search builtin is disabled", async () => {
+    const { handlers, setActiveCalls } = activateCapturing({ ...QUIET }, undefined, { allToolNames: null });
+    const calls: Notification[] = [];
+    await handlers.get("session_start")!(undefined, { ui: { notify: (m: string, l: string) => calls.push({ message: m, level: l }) } });
+    expect(setActiveCalls).toEqual([]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.level).toBe("warning");
+    expect(calls[0]!.message).toMatch(/unreachable this session/);
+  });
+
+  it("stays silent without deferred exposure (default direct)", async () => {
+    const { handlers, setActiveCalls } = activateCapturing({ PI_REFLEX_QUIET: "1" }, undefined, {});
+    const calls: Notification[] = [];
+    await handlers.get("session_start")!(undefined, { ui: { notify: (m: string, l: string) => calls.push({ message: m, level: l }) } });
+    expect(calls).toEqual([]);
+    expect(setActiveCalls).toEqual([]);
+  });
+
+  it("skips the check on hosts without tool introspection (pi ≥ 0.99)", async () => {
+    const { handlers } = activateCapturing({ ...QUIET }, undefined, { noIntrospection: true });
+    const calls: Notification[] = [];
+    await expect(
+      handlers.get("session_start")!(undefined, { ui: { notify: (m: string, l: string) => calls.push({ message: m, level: l }) } }),
+    ).resolves.toBeUndefined();
+    expect(calls).toEqual([]);
   });
 });
 
