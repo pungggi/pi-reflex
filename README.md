@@ -159,7 +159,10 @@ return r.answers; // { approved: { type: "bool", probability: 0.97 } }
 ```
 
 Extensions can do the same via `ctx.modelRegistry.classify()`. `bool`/`choice`/`score`
-map 1:1 onto our `noul`/`choice`/`score` primitives.
+map 1:1 onto our `noul`/`choice`/`score` primitives. Hosted alternatives — TypeSafe's Jev,
+Cloudflare's Clef and Clef Flash (pi ≥ 1.0.1) — work through that same interface when you
+have their API keys; `reflex/*` stays local, private, and free, with no key and no egress
+(`tools/eval-corpus.mjs` runs both arms over the same corpus for an apples-to-apples read).
 
 ### Virtual model `reflex/auto` (tier routing)
 
@@ -269,7 +272,7 @@ npm test                           # includes ONNX-vs-torch parity tests
 - [ARCHITECTURE.md](ARCHITECTURE.md) — design, ports table, measured latencies
 - [CONTRACT-harness.md](CONTRACT-harness.md) — pinned consumer contract (pi-continual-harness)
 - [RESEARCH.md](RESEARCH.md) — the 53-paper research stack behind the design
-- [BENCHMARKS.md](BENCHMARKS.md) — planned (A4)
+- [BENCHMARKS.md](BENCHMARKS.md) — §3 latency evidence + A4 accuracy eval runner (reflex vs hosted clef)
 
 ## Constraints worth knowing
 
