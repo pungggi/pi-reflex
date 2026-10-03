@@ -1,133 +1,55 @@
 # pi-reflex
 
-**TypeScript-native System 1 decision engine.** Typed decisions (`choice` / `score` / `noul`)
-with calibrated probabilities over any state — text, ticket, or JSON document — in a single
-non-autoregressive forward pass. Zero Python at runtime.
+**Local System 1 decisions for [pi](https://pi.dev).** Calibrated choice / yes-no / score
+decisions over any JSON-able state in a single non-autoregressive forward pass — as pi
+decision tools, as local classifier models for codemode, and as a tier-routing virtual
+model. A faithful pure-TypeScript runtime for the open Laya checkpoints (≤ 5.7e-06 logits
+parity, byte-identical tokenization; ~55 ms/question on CPU int8), plus a **conformal
+guarantee layer** — prediction sets and abstain thresholds with finite-sample coverage —
+that neither laya nor [von](https://github.com/wfzyx/von) ship. Zero Python at runtime.
 
 > Formerly `pi-jev-jev`. A Jev-style, laya-compatible open alternative — not affiliated
 > with TypeSafe or their "Jev" product.
 
-It is a faithful, pure-TypeScript runtime for the open
-[Laya](https://github.com/NandhaKishorM/laya) checkpoints (Apache-2.0), plus a
-**conformal guarantee layer** neither laya nor [von](https://github.com/wfzyx/von)
-ship: prediction sets and escalation thresholds with finite-sample coverage
-guarantees instead of heuristic confidence gating. See
-[ARCHITECTURE.md](ARCHITECTURE.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-- **Parity**: ≤ 5.7e-06 logits vs the real torch runtime; byte-identical tokenization
-  (verified against Python on all three checkpoints).
-- **Latency** (CPU fp32, 4 questions in one pass): multilingual ~220 ms/call (~55 ms/q),
-  English ~590 ms/call (~147 ms/q). int8 graphs included.
-- **No Python, no PyTorch**: `onnxruntime-node` (native, prebuilt) + `tokenizers.js` (pure JS).
-
 ## Install
 
-**As a pi extension** (pi ≥ 0.99, tested through pi 1.0.1) — the primary way to run pi-reflex:
-
 ```bash
-pi install npm:pi-reflex
+pi install npm:pi-reflex        # pi ≥ 0.99, tested through 1.0.1
+pi update npm:pi-reflex         # update later
 ```
 
-Registers the `reflex` tools, the local `reflex/*` classifier models, the `reflex/auto`
-tier router, and the opt-in injection guard — see
-[Use as a pi extension](#use-as-a-pi-extension). Update later with `pi update npm:pi-reflex`.
+Registers the `reflex` decision tools, three local classifier models (`reflex/*`), the
+`reflex/auto` tier router, and an opt-in injection guard. It is also a library —
+`pi-reflex/core` (pure logic, no native deps), `/engine` (ONNX runtime), `/harness`
+(pinned [pi-continual-harness](CONTRACT-harness.md) contract D1–D4) — code-only on npm;
+model artifacts download lazily on first use and are shared by the extension and the
+MCP server.
 
-**As a library** — for embedding the decision engine in your own code:
+## Decision tools
 
-```bash
-npm install pi-reflex
-```
-
-The npm package is code-only. Model artifacts (~400 MB int8 / ~1.6 GB fp32 per checkpoint)
-are generated or downloaded separately — see [Artifacts](#artifacts).
-
-Subpath imports keep the native runtime optional:
-
-```ts
-import { ChoiceConformal, route, detectScript } from "pi-reflex/core";   // pure logic, no native deps
-import { Engine } from "pi-reflex/engine";                               // needs onnxruntime-node
-```
-
-## Quickstart
-
-```ts
-import { Engine } from "pi-reflex/engine";
-import { NoulConformal } from "pi-reflex/core";
-
-const engine = await Engine.fromArtifacts("./artifacts/multilingual");
-
-const result = await engine.systemOne(
-  { from: "user@acme.com", subject: "Duplicate charge", body: "We were billed twice..." },
-  {
-    department: {
-      type: "choice",
-      instructions: "Which department should handle this?",
-      criteria: { billing: "invoices, refunds", technical: "bugs, outages" },
-    },
-    urgent: { type: "noul", instructions: "Does this need immediate action?" },
-    severity: { type: "score", instructions: "Rate severity.", criteria: ["low", "high", "critical"] },
-  },
-);
-
-result.answers.department.choice;      // "billing"
-result.answers.urgent.noul;            // calibrated P(true)
-result.answers.severity.score;         // expected level, e.g. 0.9
-```
-
-Contract-style abstention (act only on a singleton prediction set):
-
-```ts
-const noul = new NoulConformal().fit(calibrationP, calibrationLabels, 0.1);
-const [falseIn, trueIn] = noul.set(pTrue);
-const verdict = falseIn !== trueIn ? (trueIn ? "true" : "false") : "abstain";
-```
-
-Batching M states against one question in a single forward pass (hot paths like
-per-message guardrails):
-
-```ts
-const answers = await engine.batchQuestion(states, {
-  type: "score",
-  instructions: "How relevant is this item to the current task?",
-  criteria: ["irrelevant", "relevant"],
-});
-```
-
-## Use as a pi extension
-
-pi-reflex ships a pi-package extension (tools for pi coding-agent sessions, **pi ≥ 0.99, tested through pi 1.0.1**):
-
-```bash
-pi install npm:pi-reflex                  # from npm
-pi install /absolute/path/to/pi-reflex    # or a local checkout
-```
-
-Tools (engine loads lazily on first use; `multilingual` int8 by default). Every tool returns
-text **and** a typed `structuredContent` payload (pi outputSchema), is read-only annotated,
-and grouped under the `reflex` namespace:
+Engine loads lazily on first use. Every tool returns text **and** typed
+`structuredContent` (pi outputSchema), is read-only, and reports failures as
+`isError` + a recovery payload instead of throwing, so codemode scripts can degrade.
+On pi ≥ 1.0.1 each call draws as one line — `P(true)=0.42 · conf 70% · 12 tok` —
+colored by confidence (success ≥ 0.5, warning = abstain, red = error), full
+distribution on ctrl+e; the resolver matches by name, so it also covers the
+MCP-served twins and reflex calls in resumed sessions / HTML exports.
 
 | Tool | What it does |
 |---|---|
 | `reflex_decide` | calibrated single-choice decision (routing, triage) |
 | `reflex_judge` | calibrated P(true) for a yes/no question |
 | `reflex_rate` | ordinal rubric rating (expected level + distribution) |
-| `reflex_route` | **model tier + guardrails for an incoming message in one ~50–200 ms pass** |
+| `reflex_route` | model tier + guardrail flags for an incoming message in one ~50–200 ms pass |
 
-On pi ≥ 1.0.1 the extension also registers compact tool renderers (`pi.registerToolRenderer`):
-tool calls draw as one line — `P(true)=0.42 · conf 70% · 12 tok` — colored by confidence
-(success ≥ 0.5, warning = abstain, red = error), with the full probability distribution on
-ctrl+e expansion. The resolver matches by name, so the same rendering covers the extension's
-tools **and** their MCP-served twins (`mcp__reflex__reflex_*`), including reflex calls in
-resumed sessions and HTML exports drawn before the server connected.
+## Codemode & tool exposure
 
-### Codemode & tool exposure
-
-pi ≥ 1.0's leaner codemode lists each tool as one line (its `description`) and keeps the
-namespace `instructions` out of the prompt — codemode scripts read them with
-`describeNamespace("reflex")`. Probe availability with `"reflex_judge" in tools` (`typeof`
-probes no longer work in codemode). Every tool declares an `outputSchema`, so scripts receive
-the typed `structuredContent` payloads instead of text; engine failures resolve to
-`{ type: "error", error, recovery }` rather than rejecting, so scripts can degrade:
+pi ≥ 1.0's leaner codemode lists each tool as one line and keeps namespace
+`instructions` out of the prompt — scripts read them with
+`describeNamespace("reflex")`. Probe availability with `"reflex_judge" in tools`
+(`typeof` probes no longer work). Every tool declares an `outputSchema`, so scripts
+receive the typed payloads; engine failures resolve to `{ type: "error", error,
+recovery }` rather than rejecting:
 
 ```js
 if ("reflex_judge" in tools) {
@@ -139,19 +61,20 @@ if ("reflex_judge" in tools) {
 Keep the tools out of the model's tool list with `PI_REFLEX_EXPOSURE`:
 
 - `codemode` — listed one line each in the `codemode` tool, callable from scripts.
-- `deferred` — not listed anywhere; `tool_search` finds and activates them on demand
-  (pi ≥ 1.0 keeps deferred tools across resume/`/reload`). **Deferred requires
-  `tool_search`**: on `session_start` the extension checks for it and warns when it is
-  missing; if neither `tool_search` nor `codemode` is active the tools would be
-  unreachable, so it activates `tool_search` itself (when the host registered it) and
-  says so. `/reflex` shows the effective exposure and `tool_search` state.
+- `deferred` — listed nowhere; `tool_search` finds and activates them on demand
+  (pi ≥ 1.0 keeps deferred tools across resume/`/reload`). Requires `tool_search`:
+  on `session_start` the extension checks, warns when it is missing, and activates
+  `tool_search` itself if nothing else could reach the tools.
+- `direct` (default) — declared to the model normally; also callable from scripts.
 
-### Classifier models (`reflex/*`)
+`/reflex` shows the effective exposure and `tool_search` state.
+
+## Classifier models (`reflex/*`)
 
 The extension registers a `reflex` provider with three **local classifier models** —
-`reflex/multilingual`, `reflex/english`, `reflex/typed-decisions` — next to TypeSafe's hosted
-Jev classifiers, but offline, private, and free (no API key). Codemode scripts reach them
-through the uniform classifier interface:
+`reflex/multilingual`, `reflex/english`, `reflex/typed-decisions` — next to TypeSafe's
+hosted Jev and Cloudflare's Clef (pi ≥ 1.0.1), but offline, private, and free (no API
+key, no egress). Codemode scripts reach them through the uniform classifier interface:
 
 ```js
 const reflex = await models.getModelOfType("classifier", "reflex", "multilingual");
@@ -162,132 +85,93 @@ const r = await models.classify(reflex, {
 return r.answers; // { approved: { type: "bool", probability: 0.97 } }
 ```
 
-Extensions can do the same via `ctx.modelRegistry.classify()`. `bool`/`choice`/`score`
-map 1:1 onto our `noul`/`choice`/`score` primitives. Hosted alternatives — TypeSafe's Jev,
-Cloudflare's Clef and Clef Flash (pi ≥ 1.0.1) — work through that same interface when you
-have their API keys; `reflex/*` stays local, private, and free, with no key and no egress
-(`tools/eval-corpus.mjs` runs both arms over the same corpus for an apples-to-apples read).
+Other extensions can do the same via `ctx.modelRegistry.classify()`.
 
-### Virtual model `reflex/auto` (tier routing)
+## Virtual model `reflex/auto` (tier routing)
 
 Select `reflex/auto` in `/model` and each user turn is classified locally
 (`MODEL_ROUTER` + `INJECTION_GUARD`, one forward pass) before being dispatched to a
-cheap, mid, or frontier model. Continuations/retries stay sticky on the turn's model
-(prompt caches survive). Map tiers via env:
-
-```bash
-export PI_REFLEX_TIER_SMALL=anthropic/claude-haiku-4-5
-export PI_REFLEX_TIER_MID=anthropic/claude-sonnet-4-5
-export PI_REFLEX_TIER_FRONTIER=anthropic/claude-opus-4-5
-```
-
-Virtual thinking level `high` bumps one tier; unmapped tiers fall back to the previous
+cheap, mid, or frontier model. Map tiers via env — `PI_REFLEX_TIER_SMALL`,
+`PI_REFLEX_TIER_MID`, `PI_REFLEX_TIER_FRONTIER` = `provider/model-id` (e.g.
+`PI_REFLEX_TIER_SMALL=anthropic/claude-haiku-4-5`).
+Continuations/retries stay sticky on the turn's model (prompt caches survive); virtual
+thinking level `high` bumps one tier; unmapped tiers fall back to the previous
 physical model; engine failure degrades to mid tier instead of blocking the turn.
 
-### Prompt-injection guard (opt-in)
+### Quantization (int8 vs fp32)
+
+- **`int8` (default)** — ~400 MB/checkpoint, ~55 ms/question: the right pick for
+  routing, triage, and guardrails.
+- **`fp32`** — ~1.6 GB/checkpoint, full precision: set `PI_REFLEX_QUANT=fp32` in the
+  environment **before launching pi** (read once at activation; restart to switch).
+
+Both quants cache side by side in `~/.pi-reflex/engines/`, so switching never
+re-downloads the other. The MCP server reads the same variable.
+
+## Prompt-injection guard (opt-in)
 
 `PI_REFLEX_GUARD=1` enables a `context_with_system` guard: new user messages are
-classified once (cached), and flagged ones (P ≥ `PI_REFLEX_GUARD_THRESHOLD`, default 0.75)
-are annotated as untrusted data before each provider request — never removed, never
-reordered, budget-capped (≤ 3 new messages/request), with a circuit breaker on engine
+classified once (cached), and flagged ones (P ≥ `PI_REFLEX_GUARD_THRESHOLD`, default
+0.75) are annotated as untrusted data before each provider request — never removed,
+never reordered, budget-capped (≤ 3 new messages/request), circuit breaker on engine
 failure.
 
-### MCP server
+## MCP server
 
 ```bash
-pi mcp add reflex -- node <pkg>/bin/pi-reflex-mcp.js   # or: PI_REFLEX_MCP=1 (extension registers it)
+pi mcp add reflex -- node <pkg>/bin/pi-reflex-mcp.js   # user-level; or: PI_REFLEX_MCP=1 (extension registers it)
 ```
 
-A zero-dependency stdio MCP server exposing the same four tools to any MCP client
-(pi, Claude Code, Cursor). JSON-RPC per line; `initialize` / `tools/list` / `tools/call`.
+A zero-dependency stdio MCP server exposing the same four tools to any MCP client.
+With a **user-level** server, pi ≥ 1.0.1 per-project overrides work: a `.pi/mcp.json`
+entry sets only `enabled` or `exposure` (`{ "mcpServers": { "reflex": { "enabled": false } } }`),
+and `/mcp` toggles the same state. A `command`/`url` entry fully replaces the server;
+`/reload` after external edits. (The session-level `PI_REFLEX_MCP=1` registration is
+not overridable this way — register user-level for per-project control.)
 
-#### Per-project overrides (pi ≥ 1.0.1)
-
-A **user-level** `reflex` server (defined by `pi mcp add reflex -- …` in
-`~/.pi/agent/mcp.json`) can be flipped per project with a `.pi/mcp.json` entry
-that sets only `enabled`, `exposure`, or `toolExposure` — no command needed,
-and `env`/`auth` carry over. Turn it off in one repo:
-
-```json
-{ "mcpServers": { "reflex": { "enabled": false } } }
-```
-
-…or declare the tools to the model in one repo (they are `codemode`-only by default):
-
-```json
-{ "mcpServers": { "reflex": { "exposure": "direct" } } }
-```
-
-> **Scope caveat:** overrides resolve against user-level `mcp.json` servers only.
-> The extension's `PI_REFLEX_MCP=1` registration is session-level and **not**
-> overridable this way — pi rejects the project entry with *"needs a global server
-> to override"*. If you installed via `PI_REFLEX_MCP=1` and want per-project
-> control, register the server user-level instead: `pi mcp add reflex -- node
-> <pkg>/dist/mcp/server.js` (then unset `PI_REFLEX_MCP`).
-
-`/mcp` toggles the same per-project state interactively for user-level servers, and
-a `.pi/mcp.json` entry with a `command`/`url` fully replaces the user-level server.
-Run `/reload` after editing the file outside the session.
+## Status
 
 `/reflex` shows engine, classifier, router, guard, and MCP status.
 
-Env: `PI_REFLEX_ENGINE` (english|multilingual|typed-decisions), `PI_REFLEX_QUANT` (int8|fp32),
-`PI_REFLEX_ARTIFACTS` (local artifacts dir), `PI_REFLEX_TIER_{SMALL,MID,FRONTIER}` (`provider/model-id`),
-`PI_REFLEX_GUARD` (1|0), `PI_REFLEX_GUARD_THRESHOLD`, `PI_REFLEX_MCP` (1|0),
-`PI_REFLEX_EXPOSURE` (`codemode` lists the tools one line each in the codemode tool; `deferred`
-leaves discovery to `tool_search` — both keep them out of the model's tool list; `direct` is the
-explicit default; anything else warns and falls back to `direct`),
-`PI_REFLEX_QUIET` (default `0` — startup banner on; `1` silences it — `/reflex` always shows status).
+## Environment variables
 
-## Use as the pi-continual-harness companion
-
-`pi-reflex/harness` implements the pinned [CONTRACT-harness.md](CONTRACT-harness.md)
-call-sites D1–D4: `createDedupeSimilarity` (cached seam similarity + conformal abstain),
-`createCreateGate`, `createImportanceRescorer`, `createInjectionRelevance` (≤3-item
-policy per the measured §3 budget). Uncalibrated ⇒ plain scores; over budget ⇒ the
-contract's own fallback. **Honesty note:** raw checkpoints judge paraphrase-sameness
-(D1) poorly uncalibrated (~0.05 for near-duplicates) — thresholds and calibration
-land with the real corpus in A4.
+| Variable | Values (default) | Purpose |
+|---|---|---|
+| `PI_REFLEX_ENGINE` | `english` \| `multilingual` \| `typed-decisions` (`multilingual`) | default engine for tools, router, guard |
+| `PI_REFLEX_QUANT` | `int8` \| `fp32` (`int8`) | precision + artifact set; set before launch, restart to switch |
+| `PI_REFLEX_ARTIFACTS` | directory | local artifacts override (skips cache + download) |
+| `PI_REFLEX_TIER_SMALL/MID/FRONTIER` | `provider/model-id` | `reflex/auto` tier mapping |
+| `PI_REFLEX_GUARD` | `1` \| `0` (`0`) | prompt-injection guard |
+| `PI_REFLEX_GUARD_THRESHOLD` | 0–1 (`0.75`) | guard flag threshold |
+| `PI_REFLEX_EXPOSURE` | `direct` \| `codemode` \| `deferred` (`direct`) | tool visibility to the model |
+| `PI_REFLEX_MCP` | `1` \| `0` (`0`) | register the MCP server for the session |
+| `PI_REFLEX_QUIET` | `1` \| `0` (`0`) | silence the startup banner (`/reflex` always shows status) |
 
 ## Artifacts
 
 Engines resolve: `$PI_REFLEX_ARTIFACTS` → cache (`~/.pi-reflex/engines`) → HF download
-(`ngSoftware/pi-reflex-artifacts`, lazy, on first use). Generate locally instead:
-
-```bash
-python tools/export_onnx.py --checkpoint convaiinnovations/laya --out artifacts/english --int8
-python tools/export_onnx.py --checkpoint convaiinnovations/laya --subfolder multilingual --out artifacts/multilingual --int8
-python tools/export_onnx.py --checkpoint convaiinnovations/laya --subfolder typed-decisions --out artifacts/typed-decisions --int8
-python tools/parity_reference.py   # ground-truth fixtures from the real laya runtime
-npm test                           # includes ONNX-vs-torch parity tests
-```
-
-## API surface
-
-| Import | Contents |
-|---|---|
-| `pi-reflex` | everything (loads `onnxruntime-node`) |
-| `pi-reflex/core` | primitives, serialization, calibration, **conformal layer** — zero native deps |
-| `pi-reflex/router` | checkpoint routing decision (script/LID detection, precedence rules) |
-| `pi-reflex/lang` | script + language detection |
-| `pi-reflex/engine` | `Engine` (ONNX runtime), tokenizer adapter, session |
-
-## Docs
-
-- [ARCHITECTURE.md](ARCHITECTURE.md) — design, ports table, measured latencies
-- [CONTRACT-harness.md](CONTRACT-harness.md) — pinned consumer contract (pi-continual-harness)
-- [RESEARCH.md](RESEARCH.md) — the 53-paper research stack behind the design
-- [BENCHMARKS.md](BENCHMARKS.md) — §3 latency evidence + A4 accuracy eval runner (reflex vs hosted clef)
+(`ngSoftware/pi-reflex-artifacts`, lazy, on first use). Interrupted downloads leave a
+`.part` file and **resume from that byte offset** on the next attempt (transient errors
+retry within the call; progress shows in the pi footer) — a failed first use just needs
+a retry, not a cleanup. Generate locally instead with
+`python tools/export_onnx.py --checkpoint convaiinnovations/laya --subfolder <name> --out <dir> --int8`.
 
 ## Constraints worth knowing
 
 - **States and criteria must be JSON-clean**: `NaN`/`Infinity` serialize as `null`
   (Python prints `NaN`), `-0` as `0` (Python prints `-0.0`).
 - **Integer-like choice labels** (`"1"`, `"10"`, `"2"`) are reordered by JavaScript
-  (ascending, first) unlike Python dicts — keep them ascending or use non-numeric
-  labels; pi-reflex warns at runtime when it detects a diverging order.
+  (ascending, first) unlike Python dicts — keep them ascending; pi-reflex warns at
+  runtime when it detects a diverging order.
 - Reported probabilities are rounded to 4 decimals half-away-from-zero; laya uses
   banker's rounding (drift ≤ 1e-4).
+
+## Docs
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — design, ports table, measured latencies
+- [CONTRACT-harness.md](CONTRACT-harness.md) — pinned consumer contract (pi-continual-harness)
+- [BENCHMARKS.md](BENCHMARKS.md) — latency evidence + A4 accuracy eval runner (reflex vs hosted clef)
+- [RESEARCH.md](RESEARCH.md) — the 53-paper research stack behind the design
 
 ## License
 
