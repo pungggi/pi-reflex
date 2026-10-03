@@ -163,6 +163,20 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
     env.PI_REFLEX_EXPOSURE === "codemode" || env.PI_REFLEX_EXPOSURE === "deferred"
       ? (env.PI_REFLEX_EXPOSURE as "codemode" | "deferred")
       : undefined;
+  // Unrecognized values used to fall back to `direct` silently — e.g. a user
+  // setting `hidden` (a valid pi exposure this env does not support) would get the
+  // tools declared to the model against their intent. Warn loudly instead;
+  // `direct` is the documented explicit no-op and stays silent.
+  if (
+    env.PI_REFLEX_EXPOSURE &&
+    env.PI_REFLEX_EXPOSURE !== "codemode" &&
+    env.PI_REFLEX_EXPOSURE !== "deferred" &&
+    env.PI_REFLEX_EXPOSURE !== "direct"
+  ) {
+    console.error(
+      `pi-reflex: ignoring PI_REFLEX_EXPOSURE='${env.PI_REFLEX_EXPOSURE}' — expected codemode | deferred | direct; using direct`,
+    );
+  }
 
   // Startup banner on by default (PI_REFLEX_QUIET=1 silences); status lives in /reflex.
   // Same handler enforces the deferred contract: deferred tools are only reachable

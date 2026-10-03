@@ -138,7 +138,9 @@ function textLines(result: AgentToolResult<unknown>): string[] {
     .filter(Boolean);
 }
 
-/** cores.ts emits `pi-reflex error: <message>` on every failure surface. */
+/** The extension's errorResult emits `pi-reflex error: <message>`; the MCP server
+ *  emits raw messages without the prefix — its errors render via context.isError /
+ *  result.isError instead. The prefix is the fallback signal for context-less callers. */
 const ERROR_PREFIX = "pi-reflex error: ";
 
 function num(s: string | undefined): number | undefined {
@@ -162,13 +164,15 @@ export function parseResultText(tool: ReflexToolName, text: string): Partial<Rec
 
   switch (tool) {
     case "reflex_judge": {
-      const m = /^P\(true\)=([\d.]+) \(conf ([\d.]+)%\)$/.exec(body);
+      // Probability may render in scientific notation at extremes (1e-7) — the
+      // exponent group keeps those parsing instead of falling back to raw text.
+      const m = /^P\(true\)=(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?) \(conf (\d+(?:\.\d+)?)%\)$/.exec(body);
       if (!m) return {};
       return { type: "bool", probability: num(m[1]), confidence: (num(m[2]) ?? 0) / 100, inputTokens: tokens };
     }
     case "reflex_decide": {
       // `<choice> (conf X%) — {json probabilities}`
-      const m = /^([\s\S]+) \(conf ([\d.]+)%\) — (\{.*\})$/.exec(body);
+      const m = /^([\s\S]+) \(conf (\d+(?:\.\d+)?)%\) — (\{.*\})$/.exec(body);
       if (!m || m[1] === undefined || m[2] === undefined || m[3] === undefined) return {};
       let probabilities: Record<string, number> | undefined;
       try {
@@ -182,7 +186,7 @@ export function parseResultText(tool: ReflexToolName, text: string): Partial<Rec
       return { type: "choice", choice: m[1].trim(), probabilities, confidence: (num(m[2]) ?? 0) / 100, inputTokens: tokens };
     }
     case "reflex_rate": {
-      const m = /^score ([\d.]+)\/([\d?]+) \(conf ([\d.]+)%\)$/.exec(body);
+      const m = /^score (\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\/([\d?]+) \(conf (\d+(?:\.\d+)?)%\)$/.exec(body);
       if (!m) return {};
       const max = num(m[2]);
       return { type: "score", score: num(m[1]), levelCount: max === undefined ? undefined : max + 1, confidence: (num(m[3]) ?? 0) / 100, inputTokens: tokens };

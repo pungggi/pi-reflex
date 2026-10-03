@@ -79,6 +79,18 @@ jobs:
           fi
           echo "✓ versions in sync"
 
+      - name: Verify package-lock.json version matches tag
+        run: |
+          LOCK=$(node -p "require('./package-lock.json').version")
+          TAG="${{ steps.ver.outputs.version }}"
+          echo "lockfile:       $LOCK"
+          if [ "$LOCK" != "$TAG" ]; then
+            echo "✖ lockfile drift: package-lock.json '$LOCK' != tag '$TAG'"
+            echo "Fix: npm install --package-lock-only, commit, re-tag"
+            exit 1
+          fi
+          echo "✓ lockfile in sync"
+
       # Auth mode:
       #   - If secrets.NPM_TOKEN is non-empty → classic token auth
       #   - Else → OIDC trusted publishing (no .npmrc _authToken line)

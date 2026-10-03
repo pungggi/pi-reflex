@@ -10,6 +10,9 @@
 //   node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl         # reflex arm only
 //   node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl --clef  # + @cf/cloudflare/clef (needs CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID)
 //   node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl --clef --clef-model @cf/cloudflare/clef-flash
+//   … append --json for a machine-readable report on stdout
+//
+// Run `npm run build` first — the arms import the compiled engine/conformal from ../dist.
 //
 // Clef arm uses the same REST transport pi's cloudflare-workers-ai provider
 // uses (pi-ai api/cloudflare-workers-ai-system-one.ts): POST {base}/ai/run/
@@ -23,6 +26,7 @@
 import { Engine } from "../dist/engine/engine.js";
 import { NoulConformal } from "../dist/core/conformal.js";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 
 // ── args ─────────────────────────────────────────────────────────────────────
 
@@ -53,6 +57,12 @@ if (!CORPUS && !SYNTHETIC) {
 // last N records and silently run thousands of paid hosted calls (review #3).
 if (!Number.isFinite(LIMIT) || LIMIT < 1) {
   console.error(`--limit must be a positive integer (got ${arg("limit", "200")})`);
+  process.exit(2);
+}
+// --synthetic is a local machinery self-test; pairing it with --clef would spend
+// up to --limit (default 200) paid hosted calls on generated throwaway data.
+if (SYNTHETIC && CLEF) {
+  console.error("--synthetic is a local self-test — refusing to combine it with --clef (paid calls on generated data). Use --corpus with --clef.");
   process.exit(2);
 }
 
@@ -134,7 +144,9 @@ const D1_QUESTION = { same: { type: "noul", instructions: "Are these two items t
 const D1_KIND = "memory";
 
 async function reflexArm(records) {
-  const url = ARTIFACTS ?? new URL(`../artifacts/${ENGINE_NAME}`, import.meta.url).pathname.replace(/^\/(\w:)/i, "$1");
+  // fileURLToPath, not URL.pathname + replace: pathname stays percent-encoded
+  // ("my%20dir"), so artifacts paths with spaces or non-ASCII would not resolve.
+  const url = ARTIFACTS ?? fileURLToPath(new URL(`../artifacts/${ENGINE_NAME}`, import.meta.url));
   const engine = await Engine.fromArtifacts(url, { int8: true });
   const out = [];
   for (const r of records) {
@@ -307,3 +319,5 @@ console.log("\n# honesty: p50 is the planning number; hosted latency includes ne
 if (report.model && report.clef) {
   console.log("# comparison is system-vs-system: same state object + question, each system serializes its own way.");
 }
+// Machine-readable report (both arms' metrics + conformal) for benchmark history.
+if (has("json")) console.log(`\n${JSON.stringify(report, null, 2)}`);

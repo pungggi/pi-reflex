@@ -8,7 +8,7 @@
  * - tool failures return isError results with structured recovery payloads
  *   (codemode scripts read structuredContent) instead of throwing
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Engine } from "../src/engine/engine.js";
 import type { SystemOneResult } from "../src/core/types.js";
 import type { EngineName } from "../src/engine/download.js";
@@ -88,6 +88,25 @@ describe("PI_REFLEX_EXPOSURE (pi ≥ 1.0 deferred exposure)", () => {
   it("defaults to direct (undefined) and rejects unknown values", () => {
     expect(activateCapturing({}).tools.every((t) => t.exposure === undefined)).toBe(true);
     expect(activateCapturing({ PI_REFLEX_EXPOSURE: "hidden" }).tools.every((t) => t.exposure === undefined)).toBe(true);
+  });
+
+  it("warns on unrecognized values (stderr); direct is the silent explicit no-op", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      activateCapturing({ PI_REFLEX_EXPOSURE: "hidden" });
+      expect(err).toHaveBeenCalledTimes(1);
+      expect(String(err.mock.calls[0][0])).toMatch(/PI_REFLEX_EXPOSURE='hidden'.*codemode \| deferred \| direct/);
+      err.mockClear();
+      activateCapturing({ PI_REFLEX_EXPOSURE: "model-only" });
+      expect(err).toHaveBeenCalledTimes(1); // any unsupported value warns, not just 'hidden'
+      err.mockClear();
+      activateCapturing({ PI_REFLEX_EXPOSURE: "direct" });
+      activateCapturing({ PI_REFLEX_EXPOSURE: "codemode" });
+      activateCapturing({ PI_REFLEX_EXPOSURE: "deferred" });
+      expect(err).not.toHaveBeenCalled(); // recognized values stay silent
+    } finally {
+      err.mockRestore();
+    }
   });
 });
 

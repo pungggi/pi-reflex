@@ -69,6 +69,8 @@ describe("extension tool cores (fake engine)", () => {
     const out = await quietCores.route({ message: "what does this error message mean?" });
     expect(out.text).toMatch(/^tier: small —/);
     expect(out.text).toContain("injection=0.20");
+    expect(out.text).toMatch(/ \[\d+ tok\]$/); // usage suffix, like the other three tools
+    expect(out.text).not.toContain("undefined"); // undefined signals are omitted, not printed
     expect(out.data).toMatchObject({ type: "route", tier: "small", guards: { injection: 0.2, harmful: 0.2 } });
   });
   it("route escalates on injection guard", async () => {

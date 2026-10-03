@@ -235,7 +235,8 @@ Env: `PI_REFLEX_ENGINE` (english|multilingual|typed-decisions), `PI_REFLEX_QUANT
 `PI_REFLEX_ARTIFACTS` (local artifacts dir), `PI_REFLEX_TIER_{SMALL,MID,FRONTIER}` (`provider/model-id`),
 `PI_REFLEX_GUARD` (1|0), `PI_REFLEX_GUARD_THRESHOLD`, `PI_REFLEX_MCP` (1|0),
 `PI_REFLEX_EXPOSURE` (`codemode` lists the tools one line each in the codemode tool; `deferred`
-leaves discovery to `tool_search` — both keep them out of the model's tool list),
+leaves discovery to `tool_search` — both keep them out of the model's tool list; `direct` is the
+explicit default; anything else warns and falls back to `direct`),
 `PI_REFLEX_QUIET` (default `0` — startup banner on; `1` silences it — `/reflex` always shows status).
 
 ## Use as the pi-continual-harness companion
