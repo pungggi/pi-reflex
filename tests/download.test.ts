@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { contentKey, engineDir, engineFiles, ensureEngine, findLocalEngine, hfFileUrl, isEngineReady } from "../src/engine/download.js";
 
 describe("download — pure path/URL logic", () => {
@@ -68,5 +68,135 @@ describe("download — ensureEngine with mocked fetch", () => {
 
   it("missing env artifacts leave no partial local hit", () => {
     expect(existsSync(join(root, "typed-decisions-int8", "rl_agent_config.json"))).toBe(false);
+  });
+});
+
+describe("download — Range resume across interrupted attempts", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-reflex-resume-"));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  const FULL = "FAKEQUANTIZEDWEIGHTS";
+  const ETAG = '"w1"';
+  const PART_BYTES = 10;
+  let dir: string;
+  let part: string;
+  let meta: string;
+  let modelCalls = 0;
+  let secondRequestRange: string | undefined;
+
+  /** engine files other than the model download trivially (shared by the mocks) */
+  const smallBody = (url: string) => new Response("{}", { headers: { "content-length": "2", etag: ETAG } });
+
+  beforeEach(() => {
+    // ensureEngine always works inside engineDir(name, quant, root) — seed there.
+    dir = engineDir("english", "int8", root);
+    part = join(dir, "model.int8.onnx.part");
+    meta = `${part}.meta`;
+    modelCalls = 0;
+    secondRequestRange = undefined;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seedPartial(withMeta: boolean, etag = ETAG) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(part, FULL.slice(0, PART_BYTES));
+    if (withMeta) writeFileSync(meta, JSON.stringify({ etag, total: FULL.length }));
+  }
+
+  it("resumes a partial from its byte offset when the server honors Range", async () => {
+    seedPartial(true);
+    const progress: { bytes: number; total?: number }[] = [];
+    const retries: { byteOffset: number; error: string }[] = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (!u.includes("model.int8.onnx")) return smallBody(u);
+      modelCalls++;
+      if (modelCalls === 1) throw new TypeError("fetch failed: ECONNRESET"); // attempt 1 dies at the network level
+      if (secondRequestRange === undefined) secondRequestRange = (init?.headers as Record<string, string> | undefined)?.range;
+      const offset = existsSync(part) ? statSync(part).size : 0;
+      return new Response(FULL.slice(offset), {
+        status: 206,
+        headers: {
+          "content-length": String(FULL.length - offset),
+          "content-range": `bytes ${offset}-${FULL.length - 1}/${FULL.length}`,
+          etag: ETAG,
+        },
+      });
+    }) as typeof fetch;
+
+    const result = await ensureEngine("english", {
+      root,
+      quant: "int8",
+      fetchImpl,
+      retryDelayMs: 1,
+      onProgress: (i) => {
+        if (i.file.includes("model.int8.onnx")) progress.push({ bytes: i.bytes, total: i.total });
+      },
+      onRetry: (i) => retries.push({ byteOffset: i.byteOffset, error: i.error }),
+    });
+
+    expect(isEngineReady(result, "int8")).toBe(true);
+    expect(readFileSync(join(result, "model.int8.onnx"), "utf8")).toBe(FULL);
+    expect(secondRequestRange).toBe(`bytes=${PART_BYTES}-`);
+    expect(retries).toHaveLength(1);
+    expect(retries[0].byteOffset).toBe(PART_BYTES);
+    expect(retries[0].error).toContain("ECONNRESET");
+    expect(progress.at(-1)).toMatchObject({ bytes: FULL.length, total: FULL.length });
+    // success cleans up the transient files and brings the rest of the engine
+    expect(existsSync(part)).toBe(false);
+    expect(existsSync(meta)).toBe(false);
+    expect(existsSync(join(result, "tokenizer/tokenizer.json"))).toBe(true);
+  });
+
+  it("a 200 response after a partial restarts from scratch instead of appending", async () => {
+    seedPartial(false); // pre-sidecar partial (older pi-reflex) — resume is offset/etag-unverified
+    const fetchImpl = (async (url: string | URL | Request) => {
+      const u = String(url);
+      if (!u.includes("model.int8.onnx")) return smallBody(u);
+      return new Response(FULL, { headers: { "content-length": String(FULL.length), etag: ETAG } });
+    }) as typeof fetch;
+
+    const result = await ensureEngine("english", { root, quant: "int8", fetchImpl, retryDelayMs: 1 });
+    expect(readFileSync(join(result, "model.int8.onnx"), "utf8")).toBe(FULL);
+  });
+
+  it("an etag mismatch restarts rather than concatenating file generations", async () => {
+    seedPartial(true, '"old"');
+    const fetchImpl = (async (url: string | URL | Request) => {
+      const u = String(url);
+      if (!u.includes("model.int8.onnx")) return smallBody(u);
+      const offset = existsSync(part) ? statSync(part).size : 0;
+      return new Response(FULL.slice(offset), {
+        status: 206,
+        headers: {
+          "content-length": String(FULL.length - offset),
+          "content-range": `bytes ${offset}-${FULL.length - 1}/${FULL.length}`,
+          etag: ETAG,
+        },
+      });
+    }) as typeof fetch;
+
+    const result = await ensureEngine("english", { root, quant: "int8", fetchImpl, retryDelayMs: 1 });
+    expect(readFileSync(join(result, "model.int8.onnx"), "utf8")).toBe(FULL);
+    expect(existsSync(join(result, "rl_agent_config.json"))).toBe(true);
+  });
+
+  it("a stale partial past EOF (416) is discarded and the download restarts", async () => {
+    seedPartial(true);
+    let modelCalls = 0;
+    const fetchImpl = (async (url: string | URL | Request) => {
+      const u = String(url);
+      if (!u.includes("model.int8.onnx")) return smallBody(u);
+      modelCalls++;
+      if (modelCalls === 1) {
+        // pretend the partial exceeds the current file size
+        return new Response("range not satisfiable", { status: 416 });
+      }
+      return new Response(FULL, { headers: { "content-length": String(FULL.length), etag: ETAG } });
+    }) as typeof fetch;
+
+    const result = await ensureEngine("english", { root, quant: "int8", fetchImpl, retryDelayMs: 1 });
+    expect(readFileSync(join(result, "model.int8.onnx"), "utf8")).toBe(FULL);
+    expect(modelCalls).toBe(2);
   });
 });

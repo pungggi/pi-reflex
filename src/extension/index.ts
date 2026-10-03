@@ -3,8 +3,9 @@
  *
  * Loaded via the pi-package manifest (`pi.extensions: ["./extensions"]`, which
  * re-exports this module from dist/). Engine loads lazily on first use;
- * artifacts resolve from $PI_REFLEX_ARTIFACTS → cache → HF download (soft-fail
- * with actionable instructions when nothing is available).
+ * artifacts resolve from $PI_REFLEX_ARTIFACTS → cache → HF download with
+ * byte-resume across attempts, footer progress while downloading, and soft-fail
+ * with end-user recovery instructions when nothing is available.
  *
  * Registers (pi ≥ 0.99; aligned with pi 1.0's leaner codemode):
  * - 4 decision tools with structured output (namespace `reflex`, read-only;
@@ -41,6 +42,16 @@ export interface ExtensionDeps {
   env?: Record<string, string | undefined>;
 }
 
+/**
+ * Minimal UI surface for download progress, structurally typed so hosts/tests
+ * that only offer `notify` (or nothing) still load engines. Every use is
+ * best-effort and optional-called.
+ */
+interface ProgressUI {
+  setStatus?(key: string, text: string | undefined): void;
+  notify?(message: string, type?: "info" | "warning" | "error"): void;
+}
+
 interface EngineSlot {
   engines: Map<string, Engine>;
   /** In-flight loads, keyed by engine name — concurrent callers share one load (PR#2 review #6). */
@@ -51,6 +62,28 @@ interface EngineSlot {
   source: string | null;
   engineName: EngineName;
   quant: Quant;
+  /** Latest UI surface seen from a context that triggered engine work; opportunistic, may go stale after /reload. */
+  ui: ProgressUI | null;
+  /** Human-readable in-flight download state for /reflex (null when idle). */
+  downloadStatus: string | null;
+}
+
+const MB = 1024 * 1024;
+function fmtBytes(n: number): string {
+  return n >= MB ? `${(n / MB).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
+}
+
+/**
+ * End-user recovery first: the overwhelmingly common cause is a network hiccup
+ * during the lazy HF download, and a retry resumes from the partial on disk.
+ * The dev escape hatches (offline export, local artifacts dir) come last.
+ */
+function engineUnavailableMessage(name: string, cause: string): string {
+  return (
+    `pi-reflex engine '${name}' unavailable: ${cause}. ` +
+    "Check the connection and try again — interrupted artifact downloads resume from where they stopped; /reflex shows status. " +
+    "Fully offline instead: generate artifacts with tools/export_onnx.py or set PI_REFLEX_ARTIFACTS."
+  );
 }
 
 function makeSlot(deps?: ExtensionDeps) {
@@ -63,6 +96,26 @@ function makeSlot(deps?: ExtensionDeps) {
     source: null,
     engineName: (env.PI_REFLEX_ENGINE as EngineName | undefined) ?? "multilingual",
     quant: env.PI_REFLEX_QUANT === "fp32" ? "fp32" : "int8",
+    ui: null,
+    downloadStatus: null,
+  };
+
+  let lastProgressAt = 0;
+  const showDownloadStatus = (text: string) => {
+    slot.downloadStatus = text;
+    try {
+      slot.ui?.setStatus?.("pi-reflex", text);
+    } catch {
+      // Best-effort: /reflex always reports slot.downloadStatus regardless.
+    }
+  };
+  const clearDownloadStatus = () => {
+    slot.downloadStatus = null;
+    try {
+      slot.ui?.setStatus?.("pi-reflex", undefined);
+    } catch {
+      // ditto
+    }
   };
 
   const loadNamed = async (name: EngineName): Promise<Engine> => {
@@ -72,9 +125,32 @@ function makeSlot(deps?: ExtensionDeps) {
       slot.source = `local:${local}`;
       return Engine.fromArtifacts(local, { int8: slot.quant === "int8" });
     }
-    const dir = await ensureEngine(name, { quant: slot.quant });
-    slot.source = `downloaded:${dir}`;
-    return Engine.fromArtifacts(dir, { int8: slot.quant === "int8" });
+    const label = `${name} (${slot.quant})`;
+    try {
+      const dir = await ensureEngine(name, {
+        quant: slot.quant,
+        onProgress: (info) => {
+          const pct = info.total ? ` · ${Math.round((info.bytes / info.total) * 100)}%` : "";
+          const text = `downloading ${label} — ${fmtBytes(info.bytes)}${info.total ? ` / ${fmtBytes(info.total)}` : ""}${pct}`;
+          const now = Date.now();
+          if (now - lastProgressAt < 1000) {
+            slot.downloadStatus = text; // /reflex stays current without spamming the footer
+            return;
+          }
+          lastProgressAt = now;
+          showDownloadStatus(text);
+        },
+        onRetry: (info) =>
+          showDownloadStatus(`downloading ${label} — retry ${info.attempt + 1} from ${fmtBytes(info.byteOffset)} (${info.error})`),
+      });
+      clearDownloadStatus();
+      slot.source = `downloaded:${dir}`;
+      slot.ui?.notify?.(`pi-reflex: downloaded ${label} artifacts from Hugging Face — loading engine`, "info");
+      return Engine.fromArtifacts(dir, { int8: slot.quant === "int8" });
+    } catch (e) {
+      clearDownloadStatus();
+      throw e;
+    }
   };
 
   const getNamed = async (name: string): Promise<Engine> => {
@@ -89,7 +165,7 @@ function makeSlot(deps?: ExtensionDeps) {
         slot.errors.delete(name);
         return engine;
       } catch (e) {
-        const message = `pi-reflex engine '${name}' unavailable: ${(e as Error).message}. Generate artifacts with tools/export_onnx.py or set PI_REFLEX_ARTIFACTS.`;
+        const message = engineUnavailableMessage(name, (e as Error).message);
         slot.errors.set(name, message);
         throw new Error(message);
       } finally {
@@ -130,7 +206,7 @@ function errorResult(e: unknown) {
       type: "error",
       error: message,
       recovery:
-        "/reflex shows engine status; engine errors usually mean missing artifacts — generate with tools/export_onnx.py or set PI_REFLEX_ARTIFACTS to a local artifacts dir",
+        "Check the connection and retry — interrupted artifact downloads resume from where they stopped; /reflex shows engine status. For offline use, generate artifacts with tools/export_onnx.py or set PI_REFLEX_ARTIFACTS to a local artifacts dir",
     } as unknown as JsonValue,
     isError: true,
     details: {},
@@ -185,6 +261,7 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
   // all, activate tool_search if the host registered it. Introspection APIs are
   // guarded so pi ≥ 0.99 hosts without them skip the check.
   pi.on("session_start", async (_event, ctx) => {
+    slot.ui = ctx.ui;
     if (env.PI_REFLEX_QUIET !== "1") {
       ctx.ui.notify(
         "pi-reflex ready: classifier models (reflex/*), reflex/auto router, decision tools (engine loads on first use)",
@@ -221,6 +298,7 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
     name: "Reflex Auto",
     thinkingLevels: ["low", "high"],
     async route(request, ctx) {
+      slot.ui = (ctx as { ui?: ProgressUI }).ui ?? slot.ui;
       const sticky = request.reason !== "user" ? (request.failed ?? request.previous) : undefined;
       if (sticky) {
         return { model: sticky.model, thinkingLevel: sticky.thinkingLevel ?? "medium" };
@@ -271,7 +349,8 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       confidence: Type.Number(),
       inputTokens: Type.Integer(),
     }),
-    async execute(_id, params) {
+    async execute(_id, params, _signal?, _onUpdate?, ctx?) {
+      if (ctx) slot.ui = ctx.ui;
       try {
         const out = await cores.decide(params);
         return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
@@ -299,7 +378,8 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       confidence: Type.Number(),
       inputTokens: Type.Integer(),
     }),
-    async execute(_id, params) {
+    async execute(_id, params, _signal?, _onUpdate?, ctx?) {
+      if (ctx) slot.ui = ctx.ui;
       try {
         const out = await cores.judge(params);
         return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
@@ -329,7 +409,8 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       confidence: Type.Number(),
       inputTokens: Type.Integer(),
     }),
-    async execute(_id, params) {
+    async execute(_id, params, _signal?, _onUpdate?, ctx?) {
+      if (ctx) slot.ui = ctx.ui;
       try {
         const out = await cores.rate(params);
         return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
@@ -360,7 +441,8 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       guards: Type.Object({ injection: Type.Number(), harmful: Type.Number() }),
       inputTokens: Type.Integer(),
     }),
-    async execute(_id, params) {
+    async execute(_id, params, _signal?, _onUpdate?, ctx?) {
+      if (ctx) slot.ui = ctx.ui;
       try {
         const out = await cores.route(params);
         return { content: [{ type: "text", text: out.text }], structuredContent: out.data as unknown as JsonValue, details: {} };
@@ -391,7 +473,8 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
   // ── ⑦ optional prompt-injection guard (default off; PI_REFLEX_GUARD=1) ───
   const guard = env.PI_REFLEX_GUARD === "1" ? createInjectionGuard(get, { threshold: Number(env.PI_REFLEX_GUARD_THRESHOLD) || 0.75 }) : null;
   if (guard) {
-    pi.on("context_with_system", async (event) => {
+    pi.on("context_with_system", async (event, ctx) => {
+      slot.ui = ctx.ui;
       const messages = await guard.process(event.messages);
       return messages ? { messages } : undefined;
     });
@@ -400,12 +483,13 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
   pi.registerCommand("reflex", {
     description: "pi-reflex engine + surfaces status",
     handler: async (_args, ctx) => {
+      slot.ui = ctx.ui;
       const engine = slot.engines.get(slot.engineName);
       const status = engine
         ? `loaded (${slot.source})`
         : slot.errors.get(slot.engineName)
           ? `error: ${slot.errors.get(slot.engineName)}`
-          : "idle (loads on first use)";
+          : (slot.downloadStatus ?? "idle (loads on first use)");
       const tiers = ["SMALL", "MID", "FRONTIER"]
         .map((t) => env[`PI_REFLEX_TIER_${t}`] ?? "-")
         .join(" | ");
