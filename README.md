@@ -194,6 +194,27 @@ pi mcp add reflex -- node <pkg>/bin/pi-reflex-mcp.js   # or: PI_REFLEX_MCP=1 (ex
 A zero-dependency stdio MCP server exposing the same four tools to any MCP client
 (pi, Claude Code, Cursor). JSON-RPC per line; `initialize` / `tools/list` / `tools/call`.
 
+#### Per-project overrides (pi ≥ 1.0.1)
+
+A user-level `reflex` server (`pi mcp add reflex -- …`, or the extension's
+`PI_REFLEX_MCP=1` registration) can be flipped per project with a `.pi/mcp.json`
+entry that sets only `enabled`, `exposure`, or `toolExposure` — no command needed,
+and `env`/`auth` carry over. Turn it off in one repo:
+
+```json
+{ "mcpServers": { "reflex": { "enabled": false } } }
+```
+
+…or declare the tools to the model in one repo (they are `codemode`-only by default):
+
+```json
+{ "mcpServers": { "reflex": { "exposure": "direct" } } }
+```
+
+`/mcp` toggles the same per-project state interactively, and a `.pi/mcp.json`
+entry with a `command`/`url` fully replaces the user-level server. Run `/reload`
+after editing the file outside the session.
+
 `/reflex` shows engine, classifier, router, guard, and MCP status.
 
 Env: `PI_REFLEX_ENGINE` (english|multilingual|typed-decisions), `PI_REFLEX_QUANT` (int8|fp32),
