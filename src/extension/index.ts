@@ -158,11 +158,12 @@ function makeSlot(deps?: ExtensionDeps) {
     if (cached) return cached;
     const inFlight = slot.loading.get(name);
     if (inFlight) return inFlight;
+
+    slot.errors.delete(name);
     const load = (async () => {
       try {
         const engine = await loadNamed(name as EngineName);
         slot.engines.set(name, engine);
-        slot.errors.delete(name);
         return engine;
       } catch (e) {
         const message = engineUnavailableMessage(name, (e as Error).message);

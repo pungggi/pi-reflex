@@ -104,14 +104,24 @@ describe("download — Range resume across interrupted attempts", () => {
   }
 
   it("resumes a partial from its byte offset when the server honors Range", async () => {
-    seedPartial(true);
+    // start empty; attempt 1 fails mid-stream to test pipeline error propagation
     const progress: { bytes: number; total?: number }[] = [];
     const retries: { byteOffset: number; error: string }[] = [];
     const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
       const u = String(url);
       if (!u.includes("model.int8.onnx")) return smallBody(u);
       modelCalls++;
-      if (modelCalls === 1) throw new TypeError("fetch failed: ECONNRESET"); // attempt 1 dies at the network level
+      if (modelCalls === 1) {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(Buffer.from(FULL.slice(0, PART_BYTES)));
+              setTimeout(() => controller.error(new TypeError("fetch failed: ECONNRESET")), 10);
+            },
+          }),
+          { status: 200, headers: { "content-length": String(FULL.length), etag: ETAG } }
+        );
+      }
       if (secondRequestRange === undefined) secondRequestRange = (init?.headers as Record<string, string> | undefined)?.range;
       const offset = existsSync(part) ? statSync(part).size : 0;
       return new Response(FULL.slice(offset), {

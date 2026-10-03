@@ -190,6 +190,10 @@ async function downloadTo(
     }
     if (total !== undefined && (!Number.isFinite(total) || total <= 0)) total = undefined;
 
+    if (start === 0 && existing > 0) {
+      rmSync(tmp, { force: true });
+    }
+
     // Persist BEFORE streaming so a mid-stream death leaves the next attempt
     // enough to verify its resume against.
     try {

@@ -154,7 +154,8 @@ Engines resolve: `$PI_REFLEX_ARTIFACTS` → cache (`~/.pi-reflex/engines`) → H
 `.part` file and **resume from that byte offset** on the next attempt (transient errors
 retry within the call; progress shows in the pi footer) — a failed first use just needs
 a retry, not a cleanup. Generate locally instead with
-`python tools/export_onnx.py --checkpoint convaiinnovations/laya --subfolder <name> --out <dir> --int8`.
+`python tools/export_onnx.py --checkpoint convaiinnovations/laya [--subfolder <name>] --out <dir> --int8`
+(omit `--subfolder` for the English engine, which lives at the repository root).
 
 ## Constraints worth knowing
 
