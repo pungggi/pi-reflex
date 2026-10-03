@@ -22,7 +22,7 @@ guarantees instead of heuristic confidence gating. See
 
 ## Install
 
-**As a pi extension** (pi ≥ 0.99, tested through pi 1.0) — the primary way to run pi-reflex:
+**As a pi extension** (pi ≥ 0.99, tested through pi 1.0.1) — the primary way to run pi-reflex:
 
 ```bash
 pi install npm:pi-reflex
@@ -95,7 +95,7 @@ const answers = await engine.batchQuestion(states, {
 
 ## Use as a pi extension
 
-pi-reflex ships a pi-package extension (tools for pi coding-agent sessions, **pi ≥ 0.99, tested through pi 1.0**):
+pi-reflex ships a pi-package extension (tools for pi coding-agent sessions, **pi ≥ 0.99, tested through pi 1.0.1**):
 
 ```bash
 pi install npm:pi-reflex                  # from npm
@@ -112,6 +112,13 @@ and grouped under the `reflex` namespace:
 | `reflex_judge` | calibrated P(true) for a yes/no question |
 | `reflex_rate` | ordinal rubric rating (expected level + distribution) |
 | `reflex_route` | **model tier + guardrails for an incoming message in one ~50–200 ms pass** |
+
+On pi ≥ 1.0.1 the extension also registers compact tool renderers (`pi.registerToolRenderer`):
+tool calls draw as one line — `P(true)=0.42 · conf 70% · 12 tok` — colored by confidence
+(success ≥ 0.5, warning = abstain, red = error), with the full probability distribution on
+ctrl+e expansion. The resolver matches by name, so the same rendering covers the extension's
+tools **and** their MCP-served twins (`mcp__reflex__reflex_*`), including reflex calls in
+resumed sessions and HTML exports drawn before the server connected.
 
 ### Codemode & tool exposure
 
@@ -186,6 +193,34 @@ pi mcp add reflex -- node <pkg>/bin/pi-reflex-mcp.js   # or: PI_REFLEX_MCP=1 (ex
 
 A zero-dependency stdio MCP server exposing the same four tools to any MCP client
 (pi, Claude Code, Cursor). JSON-RPC per line; `initialize` / `tools/list` / `tools/call`.
+
+#### Per-project overrides (pi ≥ 1.0.1)
+
+A **user-level** `reflex` server (defined by `pi mcp add reflex -- …` in
+`~/.pi/agent/mcp.json`) can be flipped per project with a `.pi/mcp.json` entry
+that sets only `enabled`, `exposure`, or `toolExposure` — no command needed,
+and `env`/`auth` carry over. Turn it off in one repo:
+
+```json
+{ "mcpServers": { "reflex": { "enabled": false } } }
+```
+
+…or declare the tools to the model in one repo (they are `codemode`-only by default):
+
+```json
+{ "mcpServers": { "reflex": { "exposure": "direct" } } }
+```
+
+> **Scope caveat:** overrides resolve against user-level `mcp.json` servers only.
+> The extension's `PI_REFLEX_MCP=1` registration is session-level and **not**
+> overridable this way — pi rejects the project entry with *"needs a global server
+> to override"*. If you installed via `PI_REFLEX_MCP=1` and want per-project
+> control, register the server user-level instead: `pi mcp add reflex -- node
+> <pkg>/dist/mcp/server.js` (then unset `PI_REFLEX_MCP`).
+
+`/mcp` toggles the same per-project state interactively for user-level servers, and
+a `.pi/mcp.json` entry with a `command`/`url` fully replaces the user-level server.
+Run `/reload` after editing the file outside the session.
 
 `/reflex` shows engine, classifier, router, guard, and MCP status.
 

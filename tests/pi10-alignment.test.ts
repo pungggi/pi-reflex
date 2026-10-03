@@ -46,6 +46,7 @@ function activateCapturing(env: Record<string, string | undefined>, loadEngine?:
     registerTool: (def: CapturedTool) => tools.push(def),
     registerCommand: () => {},
     registerMcpServer: () => {},
+    registerToolRenderer: () => {},
     on: (event: string, handler: (event: unknown, ctx: unknown) => Promise<unknown>) => handlers.set(event, handler),
   } as never;
   activate(pi, { env, loadEngine });

@@ -57,6 +57,7 @@ pi-reflex/
 │   ├── provider.ts        #   reflex classifier provider (models.classify ↔ systemOne)
 │   ├── vmodel.ts          #   reflex/auto virtual model (tier routing, sticky continuations)
 │   ├── guard.ts           #   context_with_system prompt-injection guard (opt-in)
+│   ├── renderers.ts       #   compact tool renderers (registerToolRenderer, pi ≥ 1.0.1)
 │   └── index.ts           #   tools (outputSchema/namespace/annotations) + wiring
 ├── src/mcp/server.ts      # zero-dep stdio MCP server (initialize/tools/list/tools/call)
 ├── bin/pi-reflex-mcp.js   # MCP entry: pi mcp add reflex -- node pi-reflex-mcp

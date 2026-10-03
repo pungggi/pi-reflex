@@ -34,6 +34,7 @@ function activateWith(deps: ExtensionDeps): Captured {
     registerTool: () => {},
     registerCommand: () => {},
     registerMcpServer: () => {},
+    registerToolRenderer: () => {},
     on: () => {},
   } as never;
   activate(pi, deps);
