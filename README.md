@@ -196,9 +196,9 @@ A zero-dependency stdio MCP server exposing the same four tools to any MCP clien
 
 #### Per-project overrides (pi ≥ 1.0.1)
 
-A user-level `reflex` server (`pi mcp add reflex -- …`, or the extension's
-`PI_REFLEX_MCP=1` registration) can be flipped per project with a `.pi/mcp.json`
-entry that sets only `enabled`, `exposure`, or `toolExposure` — no command needed,
+A **user-level** `reflex` server (defined by `pi mcp add reflex -- …` in
+`~/.pi/agent/mcp.json`) can be flipped per project with a `.pi/mcp.json` entry
+that sets only `enabled`, `exposure`, or `toolExposure` — no command needed,
 and `env`/`auth` carry over. Turn it off in one repo:
 
 ```json
@@ -211,9 +211,16 @@ and `env`/`auth` carry over. Turn it off in one repo:
 { "mcpServers": { "reflex": { "exposure": "direct" } } }
 ```
 
-`/mcp` toggles the same per-project state interactively, and a `.pi/mcp.json`
-entry with a `command`/`url` fully replaces the user-level server. Run `/reload`
-after editing the file outside the session.
+> **Scope caveat:** overrides resolve against user-level `mcp.json` servers only.
+> The extension's `PI_REFLEX_MCP=1` registration is session-level and **not**
+> overridable this way — pi rejects the project entry with *"needs a global server
+> to override"*. If you installed via `PI_REFLEX_MCP=1` and want per-project
+> control, register the server user-level instead: `pi mcp add reflex -- node
+> <pkg>/dist/mcp/server.js` (then unset `PI_REFLEX_MCP`).
+
+`/mcp` toggles the same per-project state interactively for user-level servers, and
+a `.pi/mcp.json` entry with a `command`/`url` fully replaces the user-level server.
+Run `/reload` after editing the file outside the session.
 
 `/reflex` shows engine, classifier, router, guard, and MCP status.
 
