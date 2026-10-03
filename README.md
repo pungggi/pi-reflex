@@ -140,7 +140,11 @@ Keep the tools out of the model's tool list with `PI_REFLEX_EXPOSURE`:
 
 - `codemode` — listed one line each in the `codemode` tool, callable from scripts.
 - `deferred` — not listed anywhere; `tool_search` finds and activates them on demand
-  (pi ≥ 1.0 keeps deferred tools across resume/`/reload`).
+  (pi ≥ 1.0 keeps deferred tools across resume/`/reload`). **Deferred requires
+  `tool_search`**: on `session_start` the extension checks for it and warns when it is
+  missing; if neither `tool_search` nor `codemode` is active the tools would be
+  unreachable, so it activates `tool_search` itself (when the host registered it) and
+  says so. `/reflex` shows the effective exposure and `tool_search` state.
 
 ### Classifier models (`reflex/*`)
 
@@ -232,7 +236,7 @@ Env: `PI_REFLEX_ENGINE` (english|multilingual|typed-decisions), `PI_REFLEX_QUANT
 `PI_REFLEX_GUARD` (1|0), `PI_REFLEX_GUARD_THRESHOLD`, `PI_REFLEX_MCP` (1|0),
 `PI_REFLEX_EXPOSURE` (`codemode` lists the tools one line each in the codemode tool; `deferred`
 leaves discovery to `tool_search` — both keep them out of the model's tool list),
-`PI_REFLEX_QUIET` (default `1`; `0` shows the startup banner — `/reflex` always shows status).
+`PI_REFLEX_QUIET` (default `0` — startup banner on; `1` silences it — `/reflex` always shows status).
 
 ## Use as the pi-continual-harness companion
 
