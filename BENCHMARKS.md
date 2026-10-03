@@ -80,6 +80,31 @@ Budgets from CONTRACT-harness.md §3. **Verdict style: measured, not aspirationa
 - Accuracy is NOT benchmarked yet (A4): no headline claims until the corpus-driven
   conformal coverage evals run on real harness exports.
 
+## A4 — accuracy eval (runner shipped; numbers pending)
+
+`tools/eval-corpus.mjs` implements the A4 protocol over the CONTRACT-harness §4 corpus:
+the exact D1 call-site shape (state `{a, b, kind}`, `noul` "same durable fact?") for both arms —
+local `reflex/<checkpoint>` and Cloudflare's hosted `@cf/cloudflare/clef` / `clef-flash` (pi ≥ 1.0.1
+exposes them through the same classifier interface; the runner uses the identical REST transport).
+
+```bash
+node tools/eval-corpus.mjs --synthetic 40                     # self-test: machinery only, no corpus/creds
+node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl        # reflex arm (local, free)
+node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl --clef # + hosted clef (CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID)
+```
+
+Metrics: accuracy@0.5, ECE-10, AUC, latency p50/p95, tokens — plus conformal coverage, abstain
+rate, and act-accuracy on a seeded calib/eval split (reflex arm only; Clef has no conformal layer).
+Cost guard: the hosted arm caps at `--limit` (default 200) calls.
+
+**Status (honest):** no headline numbers yet.
+- The corpus is ~23 sessions' worth of decisions — schema + smoke grade, growing as the harness runs (`/harness export-corpus`).
+- The synthetic self-test (40 generated pairs) validates the runner and re-confirms the known
+  weakness: **raw uncalibrated checkpoints sit at chance (acc 50%, AUC 0.52) on paraphrase-sameness** —
+  consistent with the companion's honesty note. D1 quality is expected to come from calibration +
+  the conformal layer over real corpus data, not from the raw model.
+- Hosted comparison needs paid Cloudflare creds; the arm is env-gated and unexercised until then.
+
 ## Related evidence
 
 - Parity vs laya torch: `tests/engine-parity.test.ts` (≤ 5.7e-06 logits, identical
