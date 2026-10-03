@@ -126,13 +126,11 @@ You can map these tiers to specific models using environment variables (format: 
 
 ### Quantization (int8 vs fp32)
 
-- **`int8` (default)**: ~400 MB/checkpoint, ~55 ms/question. The right pick for
-  routing, triage, and guardrails.
-- **`fp32`**: ~1.6 GB/checkpoint, full precision. Set `PI_REFLEX_QUANT=fp32` in the
-  environment **before launching pi** (read once at activation; restart to switch).
+- **`int8` (default)**: ~400 MB/checkpoint, ~55 ms/question. The right pick for routing, triage, and guardrails where speed is critical.
+- **`fp32`**: ~1.6 GB/checkpoint, full precision (roughly 1.3×–1.6× slower than `int8`). Set `PI_REFLEX_QUANT=fp32` in the environment **before launching pi** (read once at activation; restart to switch).
+  - *When to use `fp32`:* Stick to `int8` for most workflows. Only switch to `fp32` for offline batch jobs, rigorous analytics, or edge cases where absolute confidence precision is more important than memory and latency.
 
-Both quants cache side by side in `~/.pi-reflex/engines/`, so switching never
-re-downloads the other. The MCP server reads the same variable.
+Both quants cache side by side in `~/.pi-reflex/engines/`, so switching never re-downloads the other. The MCP server reads the same variable.
 
 ## Prompt-injection guard (opt-in)
 
