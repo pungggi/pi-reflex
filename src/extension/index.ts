@@ -27,7 +27,7 @@
  */
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { JsonValue } from "@earendil-works/pi-ai";
+import type { Api, ClassifierResult, JsonValue, Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { Engine } from "../engine/engine.js";
 import { ensureEngine, findLocalEngine, type EngineName, type Quant } from "../engine/download.js";
@@ -35,6 +35,7 @@ import { createToolCores } from "./cores.js";
 import { registerReflexProvider, REFLEX_PROVIDER_ID } from "./provider.js";
 import { latestUserText, routeUserTurn, type ReflexAutoState } from "./vmodel.js";
 import { createInjectionGuard } from "./guard.js";
+import { NATIVE_PROVIDER_ID, routerBackendFromEnv } from "./native.js";
 import { reflexToolRendererResolver, reflexToolFromName } from "./renderers.js";
 
 export interface ExtensionDeps {
@@ -293,6 +294,11 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
   registerReflexProvider(pi, (modelId) => getNamed(modelId));
 
   // ── ③ virtual model reflex/auto ──────────────────────────────────────────
+  // pi 1.1 interop: when a native llama.cpp decision model (api
+  // "typesafe-system-one", provider "llama.cpp") is in the catalog, the router
+  // classifies through the running llama-server; otherwise (or on failure) it
+  // uses the local ONNX engine. PI_REFLEX_ROUTER_BACKEND=local pins local.
+  let lastRouterBackend: { backend: "native" | "local" | "degraded"; nativeModel?: string; at: number } | null = null;
   pi.registerVirtualModel<ReflexAutoState>({
     provider: REFLEX_PROVIDER_ID,
     id: "auto",
@@ -305,10 +311,33 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
         return { model: sticky.model, thinkingLevel: sticky.thinkingLevel ?? "medium" };
       }
       const message = latestUserText(request.messages);
-      const out = await routeUserTurn(get, message, request.thinkingLevel, {
-        env,
-        find: (provider, id) => ctx.modelRegistry.find(provider, id),
-      }, request.previous?.model);
+      const registry = ctx.modelRegistry as
+        | {
+            find: (provider: string, id: string) => unknown;
+            getModelsOfType?: (type: "classifier") => readonly { provider: string; id: string; api: string }[];
+            classify?: (model: never, context: never, options?: never) => Promise<unknown>;
+          }
+        | undefined;
+      const out = await routeUserTurn(
+        get,
+        message,
+        request.thinkingLevel,
+        {
+          env,
+          find: (provider, id) => (registry?.find(provider, id) as Model<Api> | undefined) ?? undefined,
+          native:
+            registry?.getModelsOfType && registry.classify
+              ? {
+                  list: () => registry.getModelsOfType!("classifier"),
+                  classify: (model, context, options) =>
+                    registry.classify!(model as never, context as never, options as never) as Promise<ClassifierResult>,
+                }
+              : undefined,
+        },
+        request.previous?.model,
+        (request as { signal?: AbortSignal }).signal,
+      );
+      lastRouterBackend = { backend: out.backend, nativeModel: out.state.nativeModel, at: out.state.at };
       return { model: out.model, thinkingLevel: out.thinkingLevel, state: out.state };
     },
   });
@@ -538,11 +567,17 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
         exposure === "deferred" && activeTools
           ? ` · tool_search ${activeTools.includes("tool_search") ? "active" : "NOT active — deferred tools unreachable"}`
           : "";
+      const backendMode = routerBackendFromEnv(env);
+      const nativeSeen = lastRouterBackend?.nativeModel ? ` (${NATIVE_PROVIDER_ID}/${lastRouterBackend.nativeModel})` : "";
+      const backendLine =
+        `router backend: ${backendMode}` +
+        (lastRouterBackend ? ` · last turn: ${lastRouterBackend.backend}${nativeSeen}` : " · no turns routed yet");
       const parts = [
         `engine: ${status}${slot.lastLatencyMs ? ` · last call ${slot.lastLatencyMs.toFixed(0)}ms` : ""}`,
         `latency: ${latencyLine()}`,
         `classifier: ${REFLEX_PROVIDER_ID}/multilingual|english|typed-decisions`,
         `reflex/auto tiers: ${tiers}`,
+        backendLine,
         `exposure: ${exposure ?? "direct (declared to the model)"}${exposureLine}`,
         `guard: ${guard ? `${guard.stats.checked} checked, ${guard.stats.flagged} flagged${guard.stats.tripped ? " (tripped)" : ""}` : "off (PI_REFLEX_GUARD=1)"}`,
         `mcp: ${env.PI_REFLEX_MCP === "1" ? "registered" : "off (PI_REFLEX_MCP=1)"}`,
