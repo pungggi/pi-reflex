@@ -38,7 +38,7 @@ The engine loads lazily on first use.
 
 All tools are read-only and return both text and a typed `structuredContent` (pi `outputSchema`). To help codemode scripts fail gracefully, tools return failures as an `isError` flag with a recovery payload instead of throwing exceptions.
 
-In pi ≥ 1.0.1, the UI renders each call as a single, compact line (e.g., `P(true)=0.42 · conf 70% · 12 tok`). This line is color-coded by confidence (success ≥ 0.5, warning = abstain, red = error), and you can press `ctrl+e` to see the full distribution. Because the UI matches tools by name, this neat formatting also applies to MCP-served twins, resumed sessions, and HTML exports.
+In pi ≥ 1.0.1, the UI renders each call as a single, compact line (e.g., `P(true)=0.42 · conf 70% · 12 tok · 55ms`). The trailing latency is pi 1.1's measured `durationMs` for the call (omitted on results stored before 1.1). This line is color-coded by confidence (success ≥ 0.5, warning = abstain, red = error), and you can press `ctrl+e` to see the full distribution. Because the UI matches tools by name, this neat formatting also applies to MCP-served twins, resumed sessions, and HTML exports.
 
 | Tool            | What it does                                                                |
 | --------------- | --------------------------------------------------------------------------- |
@@ -76,7 +76,7 @@ Keep the tools out of the model's tool list with `PI_REFLEX_EXPOSURE`:
   `tool_search` itself if nothing else could reach the tools.
 - `direct` (default): declared to the model normally; also callable from scripts.
 
-`/reflex` shows the effective exposure and `tool_search` state.
+`/reflex` shows the effective exposure, `tool_search` state, and per-tool latency telemetry (pi ≥ 1.1: call count and p50/p95 from `tool_execution_end.durationMs`).
 
 ## Classifier models (`reflex/*`)
 

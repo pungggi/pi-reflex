@@ -35,7 +35,7 @@ import { createToolCores } from "./cores.js";
 import { registerReflexProvider, REFLEX_PROVIDER_ID } from "./provider.js";
 import { latestUserText, routeUserTurn, type ReflexAutoState } from "./vmodel.js";
 import { createInjectionGuard } from "./guard.js";
-import { reflexToolRendererResolver } from "./renderers.js";
+import { reflexToolRendererResolver, reflexToolFromName } from "./renderers.js";
 
 export interface ExtensionDeps {
   loadEngine?: (name: EngineName) => Promise<Engine>;
@@ -460,6 +460,45 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
   // Cosmetic only — guarded so pi ≥ 0.99 hosts without the API keep working.
   if (typeof pi.registerToolRenderer === "function") pi.registerToolRenderer(reflexToolRendererResolver);
 
+  // ── ⑤b latency telemetry (pi ≥ 1.1 tool_execution_end.durationMs) ──────────
+  // pi 1.1 records each execute() duration on the event; we aggregate per tool
+  // (count, last, p50/p95 over a bounded ring) and surface it in /reflex. This is
+  // the real-world counterpart of BENCHMARKS.md numbers — measured in actual
+  // sessions, monotonic-clock based, and free (no engine instrumentation needed).
+  // durationMs is absent for results that did not run (cached / nested) and on
+  // hosts older than 1.1 — those events are simply skipped.
+  const TELEMETRY_RING = 256;
+  interface ToolLatencyStats {
+    count: number;
+    ring: number[];
+  }
+  const latency = new Map<string, ToolLatencyStats>();
+  const recordLatency = (tool: string, ms: number) => {
+    const s = latency.get(tool) ?? { count: 0, ring: [] };
+    s.count += 1;
+    s.ring.push(ms);
+    if (s.ring.length > TELEMETRY_RING) s.ring.shift();
+    latency.set(tool, s);
+  };
+  const percentile = (sorted: number[], p: number): number | undefined =>
+    sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] : undefined;
+  const latencyLine = (): string => {
+    if (!latency.size) return "no calls yet";
+    return [...latency.entries()]
+      .map(([tool, s]) => {
+        const sorted = [...s.ring].sort((a, b) => a - b);
+        const p50 = percentile(sorted, 50);
+        const p95 = percentile(sorted, 95);
+        return `${tool}: ${s.count} call${s.count === 1 ? "" : "s"} · p50 ${p50!.toFixed(0)}ms · p95 ${p95!.toFixed(0)}ms (last ${s.ring[s.ring.length - 1]!.toFixed(0)}ms)`;
+      })
+      .join("\n  ");
+  };
+  pi.on("tool_execution_end", (event) => {
+    if (typeof event.durationMs !== "number") return;
+    const tool = reflexToolFromName(event.toolName);
+    if (tool) recordLatency(tool, event.durationMs);
+  });
+
   // ── ⑥ optional MCP registration (default off: spawns a node process) ─────
   if (env.PI_REFLEX_MCP === "1") {
     const serverJs = fileURLToPath(new URL("../mcp/server.js", import.meta.url));
@@ -501,6 +540,7 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
           : "";
       const parts = [
         `engine: ${status}${slot.lastLatencyMs ? ` · last call ${slot.lastLatencyMs.toFixed(0)}ms` : ""}`,
+        `latency: ${latencyLine()}`,
         `classifier: ${REFLEX_PROVIDER_ID}/multilingual|english|typed-decisions`,
         `reflex/auto tiers: ${tiers}`,
         `exposure: ${exposure ?? "direct (declared to the model)"}${exposureLine}`,

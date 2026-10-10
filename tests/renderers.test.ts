@@ -16,7 +16,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentToolResult, Theme, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import activate from "../src/extension/index.js";
-import { reflexToolFromName, reflexToolRendererResolver, summarizeResult, unwrapStructured } from "../src/extension/renderers.js";
+import { reflexToolFromName, reflexToolRendererResolver, summarizeResult, unwrapStructured, formatDuration } from "../src/extension/renderers.js";
 
 /** Theme that applies no ANSI — summary tests assert on plain text. */
 const plainTheme = { fg: (_c: string, s: string) => s, bold: (s: string) => s } as unknown as Theme;
@@ -25,7 +25,12 @@ function resultOf(partial: Partial<AgentToolResult<unknown>>): AgentToolResult<u
   return { content: [], details: {}, ...partial } as AgentToolResult<unknown>;
 }
 
-function render(toolName: string, result: AgentToolResult<unknown>, expanded = false, context?: { isError?: boolean }): string[] {
+function render(
+  toolName: string,
+  result: AgentToolResult<unknown>,
+  expanded = false,
+  context?: { isError?: boolean; durationMs?: number },
+): string[] {
   const renderers = reflexToolRendererResolver(toolName, () => undefined)!;
   const comp = renderers.renderResult!(result, { expanded, isPartial: false }, plainTheme, (context ?? {}) as never);
   // Text pads every line to the terminal width — trim for assertions.
@@ -269,5 +274,33 @@ describe("follow-up fixes: route text format + scientific notation", () => {
     expect(render("reflex_judge", r)).toEqual(["P(true)=0.00 · conf 100% · 5 tok"]);
     const score = resultOf({ content: [{ type: "text", text: "score 1.5e-8/3 (conf 40.0%) [9 tok]" }] });
     expect(render("reflex_rate", score)).toEqual(["score 0.0/3 · conf 40% · 9 tok"]);
+  });
+});
+
+describe("pi 1.1 durationMs on the render context", () => {
+  const judged = resultOf({ content: [{ type: "text", text: "P(true)=0.42 (conf 70.0%) [12 tok]" }] });
+
+  it("appends the measured latency to the collapsed line", () => {
+    expect(render("reflex_judge", judged, false, { durationMs: 55.4 })).toEqual(["P(true)=0.42 · conf 70% · 12 tok · 55ms"]);
+  });
+
+  it("omits the suffix when durationMs is undefined (pre-1.1 stored results)", () => {
+    expect(render("reflex_judge", judged, false, {})).toEqual(["P(true)=0.42 · conf 70% · 12 tok"]);
+    expect(render("reflex_judge", judged)).toEqual(["P(true)=0.42 · conf 70% · 12 tok"]);
+  });
+
+  it("formats slow passes in seconds and errors keep the suffix", () => {
+    expect(render("reflex_judge", judged, false, { durationMs: 12_340 })).toEqual(["P(true)=0.42 · conf 70% · 12 tok · 12.3s"]);
+    const err = resultOf({ content: [{ type: "text", text: "pi-reflex error: no artifacts" }] });
+    expect(render("reflex_judge", err, false, { isError: true, durationMs: 3 })).toEqual(["no artifacts · 3ms"]);
+  });
+
+  it("formatDuration is pure and rejects garbage", () => {
+    expect(formatDuration(undefined)).toBe("");
+    expect(formatDuration(Number.NaN)).toBe("");
+    expect(formatDuration(-5)).toBe("");
+    expect(formatDuration(0)).toBe(" · 0ms");
+    expect(formatDuration(9_999)).toBe(" · 9999ms");
+    expect(formatDuration(10_000)).toBe(" · 10.0s");
   });
 });

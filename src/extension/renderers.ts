@@ -296,9 +296,19 @@ export function summarizeResult(
 
 // ── TUI wrappers ─────────────────────────────────────────────────────────────
 
-/** The subset of ToolRenderContext the renderers need (the error flag lives here, not on the result). */
+/** The subset of ToolRenderContext the renderers need (the error flag and pi 1.1's
+ * durationMs live here, not on the result). */
 interface RenderContext {
   isError?: boolean;
+  /** pi ≥ 1.1: recorded execute() time in ms; undefined for results stored before
+   * durations existed — the line then simply omits it. */
+  durationMs?: number;
+}
+
+/** ` · 55ms` (0-decimal) or ` · 1.2s` for slow passes; "" when unknown. */
+export function formatDuration(ms: number | undefined): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "";
+  return ms >= 10_000 ? ` · ${(ms / 1000).toFixed(1)}s` : ` · ${Math.round(ms)}ms`;
 }
 
 function renderCallComponent(tool: ReflexToolName, args: Record<string, unknown> | undefined, theme: Theme): Text {
@@ -318,7 +328,7 @@ function renderResultComponent(
   if (isPartial) return new Text(theme.fg("warning", "deciding…"), 0, 0);
   const { severity, line, detailLines } = summarizeResult(tool, result, expanded, context?.isError ?? false);
   const color = severity === "error" ? "error" : severity === "warning" ? "warning" : "success";
-  let text = theme.fg(color, line);
+  let text = theme.fg(color, `${line}${formatDuration(context?.durationMs)}`);
   for (const detail of detailLines) text += `\n${theme.fg("dim", detail)}`;
   return new Text(text, 0, 0);
 }
