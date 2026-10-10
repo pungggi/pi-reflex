@@ -1,14 +1,15 @@
 # pi-reflex
 
-**Local System 1 decisions for [pi](https://pi.dev).** Calibrated choice / yes-no / score
+**The decision layer for [pi](https://pi.dev).** Calibrated choice / yes-no / score
 decisions over any JSON-able state in a single non-autoregressive forward pass: as pi
 decision tools, as local classifier models for codemode, and as a tier-routing virtual
-model.
+model, all backed by a **conformal guarantee layer** and a zero-server local runtime.
 
-A faithful pure-TypeScript runtime for the open Laya checkpoints (≤ 5.7e-06 logits
-parity, byte-identical tokenization; ~55 ms/question on CPU int8), plus a **conformal
-guarantee layer**: a mathematical safety net that either guarantees the correct answer is
-within a small set of options, or safely says "I don't know" instead of guessing. Neither laya nor [von](https://github.com/wfzyx/von) ship this kind of layer.
+The runtime is a faithful pure-TypeScript port of the open Laya checkpoints (≤ 5.7e-06
+logits parity, byte-identical tokenization; ~55 ms/question on CPU int8). The layer on
+top is what sets it apart: a mathematical safety net that either guarantees the correct
+answer is within a small set of options, or safely says "I don't know" instead of
+guessing. Neither laya nor [von](https://github.com/wfzyx/von) ship this kind of layer.
 
 > Formerly `pi-jev-jev`. A Jev-style, laya-compatible open alternative, not affiliated
 > with TypeSafe or their "Jev" product.
@@ -31,6 +32,36 @@ It also serves as a modular library, split into:
 - `pi-reflex/harness`: The pinned [pi-continual-harness](CONTRACT-harness.md) contract (D1–D4)
 
 **Note:** The npm packages are code-only. Model artifacts download lazily on first use and are automatically shared between the extension and the MCP server.
+
+## Why pi-reflex in the pi 1.1 era
+
+Since pi 1.1, inference itself is becoming a commodity: Laya-family checkpoints served
+by llama.cpp ≥ 0.6.0 are listed natively as pi classifiers, and hosted decision models
+(TypeSafe's Jev, Cloudflare's Clef, OpenAI's GPT-6 Luna) are one API key away. `classify()` calls are no longer the differentiator: the layer around them is.
+
+- **Conformal guarantees**: calibrated abstention with mathematical backing. Either the
+  correct answer is certified to be within a returned option set, or the decision
+  abstains instead of guessing. No other pi decision surface (native, hosted, or
+  llama.cpp-served) ships this.
+- **Agent-facing tools, not just script APIs**: the `reflex_*` tools put calibrated
+  decisions directly in the agent's tool list with one-line rendering, typed
+  `structuredContent` payloads, error-recovery contracts, and an explicit abstain rule
+  (confidence < 0.5 renders as a warning; fall back to the model). Catalog classifiers
+  alone give you none of that.
+- **Zero-server operation**: `pi install npm:pi-reflex` is the whole setup; artifacts
+  download lazily and are shared across surfaces. The llama.cpp path requires obtaining
+  and running llama-server; hosted paths require keys and send data off-box.
+- **Behavior, not just answers**: `reflex/auto` tier routing (with stickiness and
+  graceful degradation) and the opt-in prompt-injection guard act on every turn;
+  classifiers alone decide nothing on their own.
+- **Free, private, offline**: no API keys, no network egress at decision time, no
+  per-token cost.
+
+**When to use what:** already operating llama.cpp? Its native classifiers are a great
+`classify()` backend. Pair them with pi-reflex for the guarantee layer, the agent tools,
+the router, and the guard; the runtime then serves as your zero-dependency fallback.
+Hosted models fit when you want someone else's weights and accept egress; pi-reflex fits
+when you want decisions you can trust locally.
 
 ## Decision tools
 
@@ -86,7 +117,7 @@ The extension registers a `reflex` provider featuring three **local classifier m
 - `reflex/english`
 - `reflex/typed-decisions`
 
-These models sit alongside hosted options like TypeSafe's Jev and Cloudflare's Clef (pi ≥ 1.0.1). However, unlike the hosted models, the `reflex` models run completely offline. They are private, free to use, and require no API keys or network egress.
+These models sit alongside hosted options (TypeSafe's Jev, Cloudflare's Clef; pi ≥ 1.0.1) and pi 1.1's native llama.cpp-served Laya-family classifiers. Unlike all of those, the `reflex` models run completely offline: they are private, free to use, and require no API keys, no llama-server process, and no network egress.
 
 Your codemode scripts can access them directly through the uniform classifier interface:
 
