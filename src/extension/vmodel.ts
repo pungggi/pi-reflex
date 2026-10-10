@@ -10,10 +10,11 @@
  * with a setup hint). Continuations and retries stay sticky on the turn's model
  * so prompt caches and thinking signatures stay valid.
  */
-import type { Api, Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Api, ClassifierApi, ClassifierContext, ClassifierModel, ClassifierResult, Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { Engine } from "../engine/engine.js";
 import type { RouteRecommendation } from "../presets.js";
 import { routeRaw } from "./cores.js";
+import { findNativeClassifier, routeViaNative, routerBackendFromEnv, type NativeClassifierEntry, type RouterBackend } from "./native.js";
 
 export type Tier = "small" | "mid" | "frontier";
 
@@ -22,6 +23,11 @@ export interface ReflexAutoState {
   reason: string;
   guards: { injection: number; harmful: number };
   at: number;
+  /** Which classifier produced this route: a native llama.cpp decision model or
+   *  the local engine (pi 1.1 interop). Absent on degraded/legacy entries. */
+  backend?: "native" | "local";
+  /** Native model id (provider "llama.cpp"), when backend is native. */
+  nativeModel?: string;
 }
 
 const TIER_ENV: Record<Tier, string> = {
@@ -68,12 +74,23 @@ export function latestUserText(messages: readonly Message[]): string | undefined
 export interface RouteUserTurnDeps {
   env: Record<string, string | undefined>;
   find: (provider: string, id: string) => Model<Api> | undefined;
+  /** pi ≥ 1.1 native llama.cpp interop; absent when no classifier catalog is
+   *  reachable (older hosts, tests). When present, PI_REFLEX_ROUTER_BACKEND
+   *  decides: "auto" (default) tries native first and falls back to the local
+   *  engine; "native" behaves the same but exists to document intent; "local"
+   *  never leaves the box. */
+  native?: {
+    list: () => readonly NativeClassifierEntry[];
+    classify: (model: ClassifierModel<ClassifierApi>, context: ClassifierContext) => Promise<ClassifierResult>;
+  };
 }
 
 export interface RouteUserTurnResult {
   model: Model<Api>;
   thinkingLevel: ModelThinkingLevel;
   state: ReflexAutoState;
+  /** Classification source actually used this turn ("degraded" = neither backend answered). */
+  backend: "native" | "local" | "degraded";
 }
 
 /**
@@ -94,19 +111,47 @@ export async function routeUserTurn(
   deps: RouteUserTurnDeps,
   previous?: Model<Api>,
 ): Promise<RouteUserTurnResult> {
-  let rec: RouteRecommendation;
+  let rec: RouteRecommendation | undefined;
   let degraded = false;
-  if (message) {
+  let backend: "native" | "local" | "degraded" = "degraded";
+  let nativeModel: string | undefined;
+  const nativeDeps = deps.native;
+  const preferNative: RouterBackend = routerBackendFromEnv(deps.env);
+
+  // 1) native llama.cpp decision model (pi 1.1 interop), when present and allowed
+  if (message && preferNative !== "local" && nativeDeps) {
+    const model = findNativeClassifier(nativeDeps.list(), deps.env.PI_REFLEX_NATIVE_CLASSIFIER);
+    if (model) {
+      try {
+        const out = await routeViaNative(nativeDeps.classify, model, message);
+        rec = out.rec;
+        backend = "native";
+        nativeModel = model.id;
+      } catch {
+        // Native classifier failed (server down mid-session, incomplete answers):
+        // fall through to the local engine rather than degrading to mid blindly.
+      }
+    }
+  }
+  // 2) local engine, when native did not answer
+  if (message && !rec) {
     try {
       const out = await routeRaw(getEngine, message);
       rec = out.rec;
+      backend = "local";
     } catch {
-      degraded = true;
-      rec = { tier: "mid", reason: "engine unavailable — defaulting to mid tier", guards: { injection: 0, harmful: 0 } };
+      // handled by the shared degraded fallback below
     }
-  } else {
+  }
+  // 3) degraded fallback: no message, or both backends failed
+  if (!rec) {
     degraded = true;
-    rec = { tier: "mid", reason: "no user message to classify — defaulting to mid tier", guards: { injection: 0, harmful: 0 } };
+    backend = "degraded";
+    rec = {
+      tier: "mid",
+      reason: message ? "engine unavailable — defaulting to mid tier" : "no user message to classify — defaulting to mid tier",
+      guards: { injection: 0, harmful: 0 },
+    };
   }
   const highEffort = effort === "high" || effort === "xhigh" || effort === "max";
   const tier = degraded ? rec.tier : bumpTier(rec.tier, highEffort);
@@ -118,15 +163,23 @@ export async function routeUserTurn(
   };
 
   const now = Date.now();
+  const stateOf = (t: Tier, reason: string): ReflexAutoState => ({
+    tier: t,
+    reason,
+    guards: rec.guards,
+    at: now,
+    ...(backend === "native" ? { backend, nativeModel } : backend === "local" ? { backend } : {}),
+  });
   const routed = tryFind(tier);
   if (routed) {
-    return { model: routed, thinkingLevel: tierThinkingLevel(tier), state: { tier, reason: rec.reason, guards: rec.guards, at: now } };
+    return { model: routed, thinkingLevel: tierThinkingLevel(tier), state: stateOf(tier, rec.reason), backend };
   }
   if (previous) {
     return {
       model: previous,
       thinkingLevel: effort,
-      state: { tier, reason: `${rec.reason}; tier "${tier}" unmapped — staying on the previous model`, guards: rec.guards, at: now },
+      state: stateOf(tier, `${rec.reason}; tier "${tier}" unmapped — staying on the previous model`),
+      backend,
     };
   }
   const original = tryFind(rec.tier);
@@ -134,7 +187,8 @@ export async function routeUserTurn(
     return {
       model: original,
       thinkingLevel: tierThinkingLevel(rec.tier),
-      state: { tier: rec.tier, reason: `${rec.reason}; tier "${tier}" unmapped — using the ${rec.tier} mapping`, guards: rec.guards, at: now },
+      state: stateOf(rec.tier, `${rec.reason}; tier "${tier}" unmapped — using the ${rec.tier} mapping`),
+      backend,
     };
   }
   throw new Error(
