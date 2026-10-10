@@ -57,6 +57,7 @@ interface ActivateOpts {
 function activateCapturing(env: Record<string, string | undefined>, loadEngine?: ExtensionDeps["loadEngine"], opts: ActivateOpts = {}) {
   const tools: CapturedTool[] = [];
   const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<unknown>>();
+  const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
   const activeTools = opts.activeTools ?? [];
   const allToolNames = opts.allToolNames === null ? [] : (opts.allToolNames ?? ["tool_search"]);
   const setActiveCalls: string[][] = [];
@@ -64,7 +65,7 @@ function activateCapturing(env: Record<string, string | undefined>, loadEngine?:
     registerProvider: () => {},
     registerVirtualModel: () => {},
     registerTool: (def: CapturedTool) => tools.push(def),
-    registerCommand: () => {},
+    registerCommand: (name: string, def: { handler: (args: string, ctx: unknown) => Promise<void> }) => commands.set(name, def),
     registerMcpServer: () => {},
     registerToolRenderer: () => {},
     on: (event: string, handler: (event: unknown, ctx: unknown) => Promise<unknown>) => handlers.set(event, handler),
@@ -75,7 +76,7 @@ function activateCapturing(env: Record<string, string | undefined>, loadEngine?:
     pi.setActiveTools = (names: string[]) => setActiveCalls.push([...names]);
   }
   activate(pi as never, { env, loadEngine });
-  return { tools, handlers, setActiveCalls };
+  return { tools, handlers, commands, setActiveCalls };
 }
 
 describe("PI_REFLEX_EXPOSURE (pi ≥ 1.0 deferred exposure)", () => {
@@ -223,5 +224,41 @@ describe("isError results with structured recovery (pi ≥ 1.0 codemode contract
     const res = await judge.execute("id", { state: "x", question: "y?" });
     expect(res.isError).toBeUndefined();
     expect(res.structuredContent).toMatchObject({ type: "bool", probability: 0.5 });
+  });
+});
+
+describe("pi 1.1 latency telemetry (tool_execution_end.durationMs)", () => {
+  async function refLexStatus(events: unknown[]): Promise<string> {
+    const { handlers, commands } = activateCapturing({ PI_REFLEX_QUIET: "1" });
+    const onEnd = handlers.get("tool_execution_end");
+    expect(onEnd).toBeDefined();
+    for (const e of events) await onEnd!(e, undefined);
+    const messages: string[] = [];
+    const cmd = commands.get("reflex");
+    expect(cmd).toBeDefined();
+    const ui = { notify: (m: string) => messages.push(m) };
+    await cmd!.handler("", { ui });
+    return messages.join("\n");
+  }
+
+  it("aggregates p50/p95/count per reflex tool and ignores other tools", async () => {
+    const events = [
+      { type: "tool_execution_end", toolName: "reflex_judge", durationMs: 40 },
+      { type: "tool_execution_end", toolName: "reflex_judge", durationMs: 60 },
+      { type: "tool_execution_end", toolName: "reflex_judge", durationMs: 200 },
+      { type: "tool_execution_end", toolName: "reflex_decide", durationMs: 55 },
+      { type: "tool_execution_end", toolName: "bash", durationMs: 999 },
+      { type: "tool_execution_end", toolName: "mcp__reflex__reflex_judge", durationMs: 70 }, // MCP twin counts too
+      { type: "tool_execution_end", toolName: "reflex_judge" }, // pre-1.1/no-run: skipped
+    ];
+    const status = await refLexStatus(events);
+    expect(status).toMatch(/latency: reflex_judge: 4 calls · p50 70ms · p95 200ms \(last 70ms\)/);
+    expect(status).toMatch(/reflex_decide: 1 call · p50 55ms · p95 55ms \(last 55ms\)/);
+    expect(status).not.toContain("bash");
+  });
+
+  it("reports no calls yet before any reflex tool ran", async () => {
+    const status = await refLexStatus([]);
+    expect(status).toMatch(/latency: no calls yet/);
   });
 });
