@@ -38,7 +38,7 @@ The engine loads lazily on first use.
 
 All tools are read-only and return both text and a typed `structuredContent` (pi `outputSchema`). To help codemode scripts fail gracefully, tools return failures as an `isError` flag with a recovery payload instead of throwing exceptions.
 
-In pi ≥ 1.0.1, the UI renders each call as a single, compact line (e.g., `P(true)=0.42 · conf 70% · 12 tok · 55ms`). The trailing latency is pi 1.1's measured `durationMs` for the call (omitted on results stored before 1.1). This line is color-coded by confidence (success ≥ 0.5, warning = abstain, red = error), and you can press `ctrl+e` to see the full distribution. Because the UI matches tools by name, this neat formatting also applies to MCP-served twins, resumed sessions, and HTML exports.
+In pi ≥ 1.0.1, the UI renders each call as a single, compact line (e.g., `P(true)=0.42 · conf 70% · 12 tok · 55ms`). The trailing latency is pi 1.1's measured `durationMs` for the call. This line is color-coded by confidence (success ≥ 0.5, warning = abstain, red = error), and you can press `ctrl+e` to see the full distribution. Because the UI matches tools by name, this neat formatting also applies to MCP-served twins and resumed sessions; the latency suffix requires pi ≥ 1.1 and does not appear in HTML exports (pi's HTML renderer does not pass durations), and it is omitted on results stored before 1.1.
 
 | Tool            | What it does                                                                |
 | --------------- | --------------------------------------------------------------------------- |
