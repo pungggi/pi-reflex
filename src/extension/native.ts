@@ -53,14 +53,18 @@ export interface NativeClassifierEntry {
 /**
  * Pick the native decision classifier to use, or undefined when the catalog has
  * none (no llama.cpp provider, server down at listing time, or only chat
- * models). `preferredId` (PI_REFLEX_NATIVE_CLASSIFIER) pins a specific model;
- * otherwise the first decision model in catalog order wins, which is
- * deterministic for a given catalog snapshot.
+ * models). `preferredId` (PI_REFLEX_NATIVE_CLASSIFIER) pins a specific model
+ * STRICTLY: when set but not among the listed decision models, the answer is
+ * undefined (stay local) — a pin that silently fell back to a different model
+ * would override an explicit operator choice. Without a pin, the first
+ * decision model in catalog order wins, which is deterministic for a given
+ * catalog snapshot.
  */
 export function findNativeClassifier(models: readonly NativeClassifierEntry[], preferredId?: string): NativeClassifierEntry | undefined {
   const decision = models.filter((m) => m.provider === NATIVE_PROVIDER_ID && m.api === NATIVE_CLASSIFIER_API);
   if (!decision.length) return undefined;
-  return decision.find((m) => m.id === preferredId) ?? decision[0];
+  if (preferredId) return decision.find((m) => m.id === preferredId);
+  return decision[0];
 }
 
 /** MODEL_ROUTER + INJECTION_GUARD in the pi classifier-question shape.
@@ -99,20 +103,31 @@ export interface NativeRouteOutcome {
 }
 
 /**
- * One routing classification through a native decision model. Throws on
- * error/aborted results or missing answers so the caller can fall back to the
- * local engine — `ModelRegistry.classify` never rejects, so stopReason is the
- * failure signal.
+ * One routing classification through a native decision model. `signal` is
+ * forwarded to the classifier call (pi's ProviderRequestOptions carries it), so
+ * an aborted turn also aborts the awaited HTTP request instead of blocking
+ * routing on a stalled llama-server. Throws on error/aborted results or missing
+ * answers so the caller can fall back to the local engine — `ModelRegistry.classify`
+ * never rejects, so stopReason is the failure signal.
  */
 export async function routeViaNative(
-  classify: (model: ClassifierModel<ClassifierApi>, context: ClassifierContext) => Promise<ClassifierResult>,
+  classify: (
+    model: ClassifierModel<ClassifierApi>,
+    context: ClassifierContext,
+    options?: { signal?: AbortSignal },
+  ) => Promise<ClassifierResult>,
   model: NativeClassifierEntry,
   message: string,
+  signal?: AbortSignal,
 ): Promise<NativeRouteOutcome> {
-  const res = await classify(model as unknown as ClassifierModel<ClassifierApi>, {
-    state: { message },
-    questions: routerQuestions(),
-  });
+  const res = await classify(
+    model as unknown as ClassifierModel<ClassifierApi>,
+    {
+      state: { message },
+      questions: routerQuestions(),
+    },
+    signal ? { signal } : undefined,
+  );
   if (res.stopReason !== "stop") {
     throw new Error(`native classifier ${res.stopReason}: ${res.errorMessage ?? "no details"}`);
   }

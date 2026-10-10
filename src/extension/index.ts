@@ -315,20 +315,28 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
         | {
             find: (provider: string, id: string) => unknown;
             getModelsOfType?: (type: "classifier") => readonly { provider: string; id: string; api: string }[];
-            classify?: (model: never, context: never) => Promise<unknown>;
+            classify?: (model: never, context: never, options?: never) => Promise<unknown>;
           }
         | undefined;
-      const out = await routeUserTurn(get, message, request.thinkingLevel, {
-        env,
-        find: (provider, id) => (registry?.find(provider, id) as Model<Api> | undefined) ?? undefined,
-        native:
-          registry?.getModelsOfType && registry.classify
-            ? {
-                list: () => registry.getModelsOfType!("classifier"),
-                classify: (model, context) => registry.classify!(model as never, context as never) as Promise<ClassifierResult>,
-              }
-            : undefined,
-      }, request.previous?.model);
+      const out = await routeUserTurn(
+        get,
+        message,
+        request.thinkingLevel,
+        {
+          env,
+          find: (provider, id) => (registry?.find(provider, id) as Model<Api> | undefined) ?? undefined,
+          native:
+            registry?.getModelsOfType && registry.classify
+              ? {
+                  list: () => registry.getModelsOfType!("classifier"),
+                  classify: (model, context, options) =>
+                    registry.classify!(model as never, context as never, options as never) as Promise<ClassifierResult>,
+                }
+              : undefined,
+        },
+        request.previous?.model,
+        (request as { signal?: AbortSignal }).signal,
+      );
       lastRouterBackend = { backend: out.backend, nativeModel: out.state.nativeModel, at: out.state.at };
       return { model: out.model, thinkingLevel: out.thinkingLevel, state: out.state };
     },

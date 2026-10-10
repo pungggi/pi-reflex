@@ -129,7 +129,7 @@ You can map these tiers to specific models using environment variables (format: 
 pi 1.1 lists llama.cpp decision models (Laya, OpenJev, Julia-1, Kev, lev) served by llama-server ≥ 0.6.0 as native classifiers (provider `llama.cpp`, `typesafe-system-one` API). When one is in the catalog, `reflex/auto` classifies each turn through the running llama-server (GPU speed, your quantization of choice) and the local ONNX engine stays as the zero-dependency fallback: native missing or failing falls back to local, local failing degrades to mid.
 
 - **`PI_REFLEX_ROUTER_BACKEND`** (`auto` \| `native` \| `local`, default `auto`): `local` never leaves the box.
-- **`PI_REFLEX_NATIVE_CLASSIFIER`**: pin a specific decision-model id (e.g. `Laya`); default is the first decision model in the catalog.
+- **`PI_REFLEX_NATIVE_CLASSIFIER`**: pin a specific decision-model id (e.g. `Laya`). The pin is strict: if the pinned id is not among the listed decision models, the router stays on the local engine (visible in `/reflex`) instead of silently switching models. Without a pin, the first decision model in the catalog is used.
 - Chat models served by llama.cpp also appear as classifiers (`llama-cpp-classify` API) but are **not** used: only native decision models produce the calibrated System-1 probabilities the tier thresholds were tuned on.
 - `/reflex` shows the configured backend and what the last turn used, e.g. `router backend: auto · last turn: native (llama.cpp/Laya)`.
 

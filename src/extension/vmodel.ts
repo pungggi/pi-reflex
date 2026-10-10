@@ -81,7 +81,11 @@ export interface RouteUserTurnDeps {
    *  never leaves the box. */
   native?: {
     list: () => readonly NativeClassifierEntry[];
-    classify: (model: ClassifierModel<ClassifierApi>, context: ClassifierContext) => Promise<ClassifierResult>;
+    classify: (
+      model: ClassifierModel<ClassifierApi>,
+      context: ClassifierContext,
+      options?: { signal?: AbortSignal },
+    ) => Promise<ClassifierResult>;
   };
 }
 
@@ -110,6 +114,9 @@ export async function routeUserTurn(
   effort: ModelThinkingLevel,
   deps: RouteUserTurnDeps,
   previous?: Model<Api>,
+  /** pi's route-request abort signal: cancels the native HTTP call mid-flight
+   *  and skips both backends once tripped (an aborted turn needs no routing). */
+  signal?: AbortSignal,
 ): Promise<RouteUserTurnResult> {
   let rec: RouteRecommendation | undefined;
   let degraded = false;
@@ -119,22 +126,22 @@ export async function routeUserTurn(
   const preferNative: RouterBackend = routerBackendFromEnv(deps.env);
 
   // 1) native llama.cpp decision model (pi 1.1 interop), when present and allowed
-  if (message && preferNative !== "local" && nativeDeps) {
+  if (message && preferNative !== "local" && nativeDeps && !signal?.aborted) {
     const model = findNativeClassifier(nativeDeps.list(), deps.env.PI_REFLEX_NATIVE_CLASSIFIER);
     if (model) {
       try {
-        const out = await routeViaNative(nativeDeps.classify, model, message);
+        const out = await routeViaNative(nativeDeps.classify, model, message, signal);
         rec = out.rec;
         backend = "native";
         nativeModel = model.id;
       } catch {
-        // Native classifier failed (server down mid-session, incomplete answers):
-        // fall through to the local engine rather than degrading to mid blindly.
+        // Native classifier failed (server down mid-session, aborted turn, incomplete
+        // answers): fall through to the local engine rather than degrading to mid blindly.
       }
     }
   }
   // 2) local engine, when native did not answer
-  if (message && !rec) {
+  if (message && !rec && !signal?.aborted) {
     try {
       const out = await routeRaw(getEngine, message);
       rec = out.rec;

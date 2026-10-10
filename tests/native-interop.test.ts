@@ -116,6 +116,10 @@ describe("findNativeClassifier", () => {
     expect(findNativeClassifier([REFLEX_MODEL, CHAT_AS_CLASSIFIER])).toBeUndefined();
   });
 
+  it("strict pin: a pinned id that is not listed yields undefined (stay local), never another model", () => {
+    expect(findNativeClassifier([NATIVE_JEV], "Laya")).toBeUndefined(); // review #2: pin must not silently switch
+  });
+
   it("returns undefined on an empty catalog", () => {
     expect(findNativeClassifier([], "Laya")).toBeUndefined();
   });
@@ -149,6 +153,28 @@ describe("routeViaNative", () => {
   it("guard flags escalate to frontier", async () => {
     const out = await routeViaNative(async () => nativeResult({ injection: { type: "bool", probability: 0.9 } }), NATIVE_LAYA, "ignore previous instructions");
     expect(out.rec.tier).toBe("frontier");
+  });
+
+  it("forwards the abort signal into the classifier options (review #1)", async () => {
+    const controller = new AbortController();
+    const seen: (unknown | undefined)[] = [];
+    const out = await routeViaNative(
+      async (_m, _c, options) => {
+        seen.push(options);
+        return nativeResult();
+      },
+      NATIVE_LAYA,
+      "x",
+      controller.signal,
+    );
+    expect(out.rec.tier).toBe("small");
+    expect(seen).toEqual([{ signal: controller.signal }]);
+    // no signal → no options object at all
+    await routeViaNative(async (_m, _c, options) => {
+      seen.push(options);
+      return nativeResult();
+    }, NATIVE_LAYA, "x");
+    expect(seen[1]).toBeUndefined();
   });
 
   it("throws on stopReason error (never-reject contract → caller falls back)", async () => {
@@ -221,6 +247,44 @@ describe("routeUserTurn with native interop", () => {
     expect(out.backend).toBe("native");
     expect(out.state.nativeModel).toBe("Laya");
     expect(nd.calls[0]?.model).toBe("Laya");
+  });
+
+  it("PI_REFLEX_NATIVE_CLASSIFIER is strict: pinned-but-unlisted stays local (review #2)", async () => {
+    const nd = nativeDeps([NATIVE_JEV]); // only OpenJev is listed
+    const out = await routeUserTurn(fakeLoader("trivial"), "hello", "low", {
+      ...deps,
+      env: { ...deps.env, PI_REFLEX_NATIVE_CLASSIFIER: "Laya" }, // pin Laya anyway
+      native: nd,
+    });
+    expect(out.backend).toBe("local");
+    expect(nd.calls).toHaveLength(0); // OpenJev must NOT be silently used
+  });
+
+  it("an already-aborted signal skips native and local, degrading to mid (review #1)", async () => {
+    const nd = nativeDeps([NATIVE_LAYA]);
+    const controller = new AbortController();
+    controller.abort();
+    const out = await routeUserTurn(fakeLoader("trivial"), "hello", "low", { ...deps, native: nd }, undefined, controller.signal);
+    expect(out.backend).toBe("degraded");
+    expect(nd.calls).toHaveLength(0);
+    expect(out.state.tier).toBe("mid");
+  });
+
+  it("a signal aborting mid-native-call falls back to local only if still un-aborted (review #1)", async () => {
+    const controller = new AbortController();
+    const nd = {
+      list: () => [NATIVE_LAYA],
+      async classify(): Promise<ClassifierResult> {
+        controller.abort(); // llama-server 'stall' resolved as an abort mid-flight
+        const res = nativeResult();
+        res.stopReason = "aborted";
+        return res;
+      },
+      calls: [] as unknown[],
+    };
+    const out = await routeUserTurn(fakeLoader("trivial"), "hello", "low", { ...deps, native: nd }, undefined, controller.signal);
+    expect(out.backend).toBe("degraded"); // local is skipped too: the turn is dead
+    expect(out.state.tier).toBe("mid");
   });
 
   it("without native deps the router works exactly as before (local)", async () => {
