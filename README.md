@@ -17,7 +17,7 @@ guessing. Neither laya nor [von](https://github.com/wfzyx/von) ship this kind of
 ## Install
 
 ```bash
-pi install npm:pi-reflex        # pi ≥ 1.0.0
+pi install npm:pi-reflex        # pi ≥ 1.0 (tested through 1.4)
 ```
 
 Installing `pi-reflex` registers the following components:
@@ -33,11 +33,13 @@ It also serves as a modular library, split into:
 
 **Note:** The npm packages are code-only. Model artifacts download lazily on first use and are automatically shared between the extension and the MCP server.
 
-## Why pi-reflex in the pi 1.1 era
+## Why pi-reflex in the pi 1.4 era
 
 Since pi 1.1, inference itself is becoming a commodity: Laya-family checkpoints served
 by llama.cpp ≥ 0.6.0 are listed natively as pi classifiers, and hosted decision models
-(TypeSafe's Jev, Cloudflare's Clef, OpenAI's GPT-6 Luna) are one API key away. `classify()` calls are no longer the differentiator: the layer around them is.
+(TypeSafe's Jev, Cloudflare's Clef, OpenAI's GPT-6 Luna) are one API key away. As of
+pi 1.4, those hosted models judge images too. `classify()` calls are no longer the
+differentiator: the layer around them is.
 
 - **Conformal guarantees**: calibrated abstention with mathematical backing. Either the
   correct answer is certified to be within a returned option set, or the decision
@@ -51,6 +53,10 @@ by llama.cpp ≥ 0.6.0 are listed natively as pi classifiers, and hosted decisio
 - **Zero-server operation**: `pi install npm:pi-reflex` is the whole setup; artifacts
   download lazily and are shared across surfaces. The llama.cpp path requires obtaining
   and running llama-server; hosted paths require keys and send data off-box.
+- **Stable under catalog churn**: pi's model defaults rotate nearly every release
+  (pi 1.4 swapped the Copilot, NVIDIA, and Xiaomi defaults and added MiniMax flash
+  tiers). The reflex engines ship with the package, and `reflex/auto` tiers map to
+  models you pin via env vars, so your routing does not break when the catalog moves.
 - **Behavior, not just answers**: `reflex/auto` tier routing (with stickiness and
   graceful degradation) and the opt-in prompt-injection guard act on every turn;
   classifiers alone decide nothing on their own.
@@ -60,8 +66,9 @@ by llama.cpp ≥ 0.6.0 are listed natively as pi classifiers, and hosted decisio
 **When to use what:** already operating llama.cpp? Its native classifiers are a great
 `classify()` backend. Pair them with pi-reflex for the guarantee layer, the agent tools,
 the router, and the guard; the runtime then serves as your zero-dependency fallback.
-Hosted models fit when you want someone else's weights and accept egress; pi-reflex fits
-when you want decisions you can trust locally.
+Hosted models fit when you want someone else's weights, image input (pi ≥ 1.4), and
+per-call billing; pi-reflex fits when you want decisions you can trust locally,
+text-only by design.
 
 ## Decision tools
 
@@ -123,7 +130,11 @@ The extension registers a `reflex` provider featuring three **local classifier m
 - `reflex/english`
 - `reflex/typed-decisions`
 
-These models sit alongside hosted options (TypeSafe's Jev, Cloudflare's Clef; pi ≥ 1.0.1) and pi 1.1's native llama.cpp-served Laya-family classifiers. Unlike all of those, the `reflex` models run completely offline: they are private, free to use, and require no API keys, no llama-server process, and no network egress.
+These models sit alongside hosted options (TypeSafe's Jev and Cloudflare's Clef on
+Workers AI, OpenAI's GPT-6 Luna; pi ≥ 1.0.1) and pi 1.1's native llama.cpp-served
+Laya-family classifiers. Unlike all of those, the `reflex` models run completely
+offline: they are private, free to use, and require no API keys, no llama-server
+process, and no network egress.
 
 **Text-only by design (pi ≥ 1.4):** hosted classifiers gained image input (Jev and Clef on Workers AI, GPT-6 Luna, OpenRouter image classifiers), but the `reflex` engines judge JSON states only. Every `reflex/*` model declares `input: ["text"]`, so pi turns an `images` request into an error result, and the implementation refuses image contexts directly as well. Scripts get a clear pointer to a hosted classifier instead of a silently image-blind answer.
 
