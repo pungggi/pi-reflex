@@ -86,10 +86,22 @@ function usageOf(res: { usage: { input_tokens: number; output_tokens: number } }
  * The `classify` implementation pi calls for models with `api: "reflex-onnx"`.
  * Throws on engine failure; pi's ModelRuntime.classify converts that into an
  * error result (its contract never rejects).
+ *
+ * Image contexts (pi ≥ 1.4 `ClassifierContext.images`) are rejected here even
+ * though pi's runtime already refuses them for `input: ["text"]` models:
+ * callers that bypass that check (direct `ctx.modelRegistry.classify()`, future
+ * hosts) must get a clear error instead of a silently image-blind answer.
  */
 export function createReflexClassifier(engineFor: (modelId: string) => Promise<Engine>): ProviderClassifier {
   return {
     async classify(model, context: ClassifierContext): Promise<ClassifierResult> {
+      if (context.images?.length) {
+        throw new Error(
+          `pi-reflex '${model.id}' is text-only: the ONNX engines cannot judge images ` +
+            `(${context.images.length} received). Route image questions to a hosted ` +
+            "classifier instead (pi ≥ 1.4: Jev/Clef on cloudflare-workers-ai, OpenRouter image classifiers).",
+        );
+      }
       const engine = await engineFor(model.id);
       const res = await engine.systemOne(context.state as JsonObject, mapQuestions(context.questions));
       const answers = Object.fromEntries(

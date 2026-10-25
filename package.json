@@ -1,6 +1,6 @@
 {
   "name": "pi-reflex",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "TypeScript-native System 1 decision engine: non-autoregressive choice/score/noul decisions with calibrated probabilities, conformal guarantees, multilingual routing. A Jev-style, laya-compatible open alternative (not affiliated with TypeSafe). Zero Python at runtime.",
   "type": "module",
   "license": "Apache-2.0",
@@ -92,9 +92,9 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "^1.1.0",
-    "@earendil-works/pi-tui": "^1.1.0",
+    "@earendil-works/pi-ai": "^1.4.0",
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-tui": "^1.4.0",
     "@types/node": "^22.10.0",
     "typebox": "*",
     "typescript": "^5.7.0",

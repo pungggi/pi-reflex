@@ -92,6 +92,27 @@ describe("createReflexClassifier.classify", () => {
       impl.classify(model, { state: {}, questions: { q: { type: "bool", instructions: "?" } } }),
     ).rejects.toThrow(/no artifacts/);
   });
+
+  // pi ≥ 1.4: ClassifierContext gained `images`; pi's runtime refuses them for
+  // input:["text"] models, but direct callers must not get a silently
+  // image-blind text answer either.
+  it("rejects image contexts with a hosted-classifier pointer (pi ≥ 1.4 image contract)", async () => {
+    let engineCalled = false;
+    const impl = createReflexClassifier(async () => {
+      engineCalled = true;
+      return fakeEngine(() => ({ type: "noul", noul: 0.9 }));
+    });
+    const model = { id: "multilingual", api: "reflex-onnx" } as never;
+    const image = { type: "image" as const, data: "aGk=", mimeType: "image/png" };
+    await expect(
+      impl.classify(model, {
+        state: {},
+        images: [image],
+        questions: { q: { type: "bool", instructions: "?" } },
+      }),
+    ).rejects.toThrow(/text-only.*judge images/s);
+    expect(engineCalled).toBe(false); // refused before any engine work
+  });
 });
 
 describe("reflexClassifierModels", () => {
@@ -103,6 +124,10 @@ describe("reflexClassifierModels", () => {
       expect(m.api).toBe("reflex-onnx");
       expect(m.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
       expect(m.contextWindow).toBeGreaterThan(0);
+      // pi ≥ 1.4 image contract: with input:["text"] (no "image"), pi's
+      // ModelRuntime returns an ERROR RESULT for ClassifierContext.images
+      // instead of dispatching — codemode scripts can rely on that.
+      expect(m.input).toEqual(["text"]);
     }
   });
 });
