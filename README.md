@@ -109,6 +109,12 @@ Keep the tools out of the model's tool list with `PI_REFLEX_EXPOSURE`:
 
 `/reflex` shows the effective exposure, `tool_search` state, and per-tool latency telemetry (pi ≥ 1.1: call count and p50/p95 from `tool_execution_end.durationMs`).
 
+**Parallel scripts (pi ≥ 1.4):** a pi process runs at most two codemode scripts at a time; extra scripts queue for a free worker in arrival order instead of failing. Two knobs and one deadline matter here:
+
+- `PI_CODEMODE_MAX_WORKERS` raises the two-worker limit. Raise it when you fan out many classification scripts in parallel.
+- **60-second queue cap**: a script that waits longer than 60s for a worker fails without running, so give scripts a `timeout_ms` that includes the wait.
+- **Four classify calls at once per script**: `models.classify()` / `models.generateImages()` concurrency is capped per script; `Promise.all()` over more items just queues. This matters because `reflex_*` tools are designed to be called from scripts: queueing instead of failing keeps fan-out classification reliable.
+
 ## Classifier models (`reflex/*`)
 
 The extension registers a `reflex` provider featuring three **local classifier models**:
@@ -118,6 +124,8 @@ The extension registers a `reflex` provider featuring three **local classifier m
 - `reflex/typed-decisions`
 
 These models sit alongside hosted options (TypeSafe's Jev, Cloudflare's Clef; pi ≥ 1.0.1) and pi 1.1's native llama.cpp-served Laya-family classifiers. Unlike all of those, the `reflex` models run completely offline: they are private, free to use, and require no API keys, no llama-server process, and no network egress.
+
+**Text-only by design (pi ≥ 1.4):** hosted classifiers gained image input (Jev and Clef on Workers AI, GPT-6 Luna, OpenRouter image classifiers), but the `reflex` engines judge JSON states only. Every `reflex/*` model declares `input: ["text"]`, so pi turns an `images` request into an error result, and the implementation refuses image contexts directly as well. Scripts get a clear pointer to a hosted classifier instead of a silently image-blind answer.
 
 Your codemode scripts can access them directly through the uniform classifier interface:
 
