@@ -20,6 +20,8 @@
 // model/input/options wrapper"), answers as wire-level `noul`.
 // Same state object + same D1 question for both arms — each system serializes
 // its own way (reflex renders state; the Workers AI service sees raw JSON).
+// IMPORTANT: the model id must go in the path with a RAW '@' — URL-encoding it
+// (%40) makes Cloudflare's router answer 400 "No route for that URI".
 //
 // Honesty: this is the A4 *protocol* runner. Numbers are smoke-grade until
 // the corpus grows (see BENCHMARKS.md §A4) and the hosted arm needs paid creds.

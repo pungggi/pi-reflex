@@ -77,8 +77,9 @@ Budgets from CONTRACT-harness.md §3. **Verdict style: measured, not aspirationa
   in contract spirit: pre-select aggressively (≤3 items), pin D4 to the multilingual
   checkpoint, move to GPU, or take the contract's own fallback (importance-order
   ranking). **Do not silently exceed the budget.**
-- **Accuracy is now measured (A4, curated corpus):** raw checkpoints sit at chance on
-  paraphrase-sameness and the value is the conformal layer — see §A4 for numbers and provenance.
+- **Accuracy is now measured (A4, curated corpus):** raw checkpoints are at/near chance as
+  thresholded judges (accuracy@0.5 50.8–56.7%, AUC 0.47–0.63) and the value is the conformal
+  layer — see §A4 for numbers and provenance.
 
 ## A4 — accuracy eval (first real numbers: curated corpus, 2026-10-25)
 
@@ -140,10 +141,13 @@ the temporary token used was rolled after the runs):
 
 How to read this (measured, not spun):
 
-- **Raw local checkpoints are at chance on paraphrase-sameness.** Accuracy 50.8–56.7% and AUC
-  0.470–0.629 re-confirm the synthetic self-test finding on real content: the uncalibrated
-  laya-family checkpoints cannot rank lexically dissimilar paraphrases. This is the known
-  weakness, now measured in the regime D1 actually cares about.
+- **Raw local checkpoints are at or near chance as thresholded judges.** Accuracy@0.5 is
+  50.8–56.7% on every engine: the default 0.5 threshold extracts nothing usable from the raw
+  scores. Ranking signal is weak and uneven: AUC 0.470 for multilingual (at/below chance),
+  0.530 for typed-decisions (marginal), 0.629 for english (measurably above chance). So the
+  engines are not uniformly "unable to rank" — english carries real but weak signal — but all
+  three sit far from the hosted 0.989–0.997 and none is trustworthy as a raw paraphrase judge.
+  This re-confirms the synthetic self-test finding on real content, in the regime D1 cares about.
 - **The conformal guarantee holds on every local engine.** Coverage meets the 1−α = 90% target
   (90.0% / 96.7% / 90.0%). With an uninformative raw score the calibrated layer mostly abstains
   (72–87%) instead of guessing. That is the product behaving as designed, not a bug. Hosted
