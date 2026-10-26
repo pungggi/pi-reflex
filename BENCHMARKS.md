@@ -77,34 +77,108 @@ Budgets from CONTRACT-harness.md §3. **Verdict style: measured, not aspirationa
   in contract spirit: pre-select aggressively (≤3 items), pin D4 to the multilingual
   checkpoint, move to GPU, or take the contract's own fallback (importance-order
   ranking). **Do not silently exceed the budget.**
-- Accuracy is NOT benchmarked yet (A4): no headline claims until the corpus-driven
-  conformal coverage evals run on real harness exports.
+- **Accuracy is now measured (A4, curated corpus):** raw checkpoints are at/near chance as
+  thresholded judges (accuracy@0.5 50.8–56.7%, AUC 0.47–0.63) and the value is the conformal
+  layer — see §A4 for numbers and provenance.
 
-## A4 — accuracy eval (runner shipped; numbers pending)
+## A4 — accuracy eval (first real numbers: curated corpus, 2026-10-25)
 
 `tools/eval-corpus.mjs` implements the A4 protocol over the CONTRACT-harness §4 corpus:
 the exact D1 call-site shape (state `{a, b, kind}`, `noul` "same durable fact?") for both arms —
-local `reflex/<checkpoint>` and Cloudflare's hosted `@cf/cloudflare/clef` / `clef-flash` (pi ≥ 1.0.1
+local `reflex/<checkpoint>` and Cloudflare's hosted Workers AI classifiers (pi ≥ 1.0.1
 exposes them through the same classifier interface; the runner uses the identical REST transport).
 
 ```bash
 node tools/eval-corpus.mjs --synthetic 40                     # self-test: machinery only, no corpus/creds
 node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl        # reflex arm (local, free)
-node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl --clef # + hosted clef (CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID)
+node tools/eval-corpus.mjs --corpus dedupe-pairs.jsonl --clef # + hosted arm (CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID)
+#   --clef-model @cf/cloudflare/clef-omni   (Clef Omni,  pi 1.4 catalog, $0.15/M input tok)
+#   --clef-model typesafe/jev-1.14.0        (Jev 1.14,   pi 1.4 catalog, $0.042/M input tok)
 # append --json for a machine-readable report; `npm run build` first (arms import ../dist)
 ```
 
-Metrics: accuracy@0.5, ECE-10, AUC, latency p50/p95, tokens — plus conformal coverage, abstain
-rate, and act-accuracy on a seeded calib/eval split (reflex arm only; Clef has no conformal layer).
-Cost guard: the hosted arm caps at `--limit` (default 200) calls.
+Metrics: accuracy@0.5, ECE-10, AUC, latency p50/p95, tokens, plus conformal coverage, abstain
+rate, and act-accuracy on a seeded calib/eval split (reflex arm only; hosted classifiers have no
+conformal layer). Cost guard: the hosted arm caps at `--limit` (default 200) calls.
 
-**Status (honest):** no headline numbers yet.
-- The corpus is ~23 sessions' worth of decisions — schema + smoke grade, growing as the harness runs (`/harness export-corpus`).
-- The synthetic self-test (40 generated pairs) validates the runner and re-confirms the known
-  weakness: **raw uncalibrated checkpoints sit at chance (acc 50%, AUC 0.52) on paraphrase-sameness** —
-  consistent with the companion's honesty note. D1 quality is expected to come from calibration +
-  the conformal layer over real corpus data, not from the raw model.
-- Hosted comparison needs paid Cloudflare creds; the arm is env-gated and unexercised until then.
+### Corpus provenance (honest)
+
+- **Why curated:** no organic labels exist. A full transcript-mining pass (756 session files)
+  found 111 `harness-state` snapshots but **zero `proposer: "dedupe"` runs**, and replaying the
+  production dedupe proposer over all 56 unique states yielded 0 usable pairs: items are
+  per-model isolated and every comparable pair sits below 0.3 token overlap. The real harness
+  pool simply contains no duplicate clusters yet.
+- **What was used instead:** 120 hand-labeled pairs (60 dup / 60 not_dup) built from REAL
+  recorded guidance in this environment: durable harness items, session scratch notes, and repo
+  docs (release recipes, shell quirks, workflow rules). `dup` pairs are independent recordings or
+  faithful paraphrases of the same durable fact; `not_dup` pairs are different facts, biased
+  toward same-topic hard negatives (both here-string rules, both version-sync rules, both router
+  behaviors). Labels were hand-assigned by the maintainer's agent and are **not human-verified**.
+- **Deliberately hard regime:** average tokenOverlap is 0.269 (dup) vs 0.079 (not_dup); zero dup
+  pairs reach the production merge threshold (0.6). Lexical thresholding cannot separate these,
+  which is exactly why D1 wants a learned judge.
+- The corpus stays local (`.pi/scratch/a4-corpus/`, gitignored) per the contract's local-only
+  invariant; it is not shipped or published.
+
+### Results (int8, CPU, deterministic seeded split; rerun with the commands above)
+
+Local arms (all three checkpoints, curated corpus):
+
+| reflex engine | accuracy@0.5 | ECE-10 | AUC | latency p50 / p95 | conformal coverage (α=0.1) | abstain | act-accuracy (n) |
+|---|---|---|---|---|---|---|---|
+| multilingual | 56.7% | 0.329 | 0.470 | 82 / 107 ms | **90.0%** | 83.3% | 40.0% (10) |
+| typed-decisions | 50.8% | 0.022 | 0.530 | 171 / 212 ms | **96.7%** | 86.7% | 75.0% (8) |
+| english | 52.5% | 0.037 | 0.629 | 169 / 303 ms | **90.0%** | 71.7% | 64.7% (17) |
+
+Hosted arms (Workers AI, same 120 pairs, run 2026-10-26; latency includes network RTT;
+the temporary token used was rolled after the runs):
+
+| hosted model | accuracy@0.5 | ECE-10 | AUC | latency p50 / p95 | billed input tokens |
+|---|---|---|---|---|---|
+| @cf/cloudflare/clef-omni | **95.0%** | 0.066 | 0.996 | 243 / 565 ms | 28,037 |
+| @cf/cloudflare/clef | 94.2% | 0.048 | 0.989 | 341 / 570 ms | 28,396 |
+| @cf/cloudflare/clef-flash | 92.5% | 0.113 | **0.997** | 495 / 1222 ms | 28,396 |
+
+How to read this (measured, not spun):
+
+- **Raw local checkpoints are at or near chance as thresholded judges.** Accuracy@0.5 is
+  50.8–56.7% on every engine: the default 0.5 threshold extracts nothing usable from the raw
+  scores. Ranking signal is weak and uneven: AUC 0.470 for multilingual (at/below chance),
+  0.530 for typed-decisions (marginal), 0.629 for english (measurably above chance). So the
+  engines are not uniformly "unable to rank" — english carries real but weak signal — but all
+  three sit far from the hosted 0.989–0.997 and none is trustworthy as a raw paraphrase judge.
+  This re-confirms the synthetic self-test finding on real content, in the regime D1 cares about.
+- **The conformal guarantee holds on every local engine.** Coverage meets the 1−α = 90% target
+  (90.0% / 96.7% / 90.0%). With an uninformative raw score the calibrated layer mostly abstains
+  (72–87%) instead of guessing. That is the product behaving as designed, not a bug. Hosted
+  classifiers have no such layer: they answer every pair at their measured accuracy.
+- **Hosted models dominate accuracy on this hard corpus, at 3–6× the latency plus cost and
+  egress.** Clef Omni scores 95.0% / AUC 0.996 vs multilingual's 56.7% / 0.470. That is the
+  expected trade: 30B-MoE served weights vs a 322M local checkpoint. pi-reflex's case is not
+  raw accuracy parity; it is local, free, private, offline decisions with a guarantee layer.
+- **Latency ladder:** local multilingual p50 82 ms; clef-omni 243 ms; clef 341 ms; clef-flash
+  495 ms (p95 1222 ms). The flash variant is both the least accurate and the slowest here.
+- **Act-accuracy numbers are small-n.** Only 8–17 of 60 eval pairs were acted on; treat those
+  percentages as indicative. Calibration quality differs by engine: typed-decisions is nearly
+  perfectly calibrated (ECE 0.022), multilingual is badly overconfident (ECE 0.329).
+- **D1 quality comes from the layer, not the raw model:** production dedupe quality is expected
+  from conformal gating over real calibration data, not from thresholding raw scores.
+
+### Hosted arms: exercised (Clef family) + Jev 1.14 pending enablement
+
+- **Run 2026-10-26** on a free-plan account: `@cf/cloudflare/clef-omni`, `@cf/cloudflare/clef`,
+  `@cf/cloudflare/clef-flash` all served 120/120 calls (table above). Measured cost from billed
+  tokens: roughly **$0.004** for all three runs combined at catalog input rates.
+- **Jev 1.14 is in the catalog but not provisioned.** The dashboard lists
+  `typesafe/jev-1.14.0` (pi 1.4's id matches), yet every REST form
+  (`typesafe/jev`, `typesafe/jev-1.14`, `typesafe/jev-1.14.0`) answers 400 "No route for that URI"
+  while sibling models serve fine. Per Cloudflare's Oct 2026 changelog, TypeSafe models roll out
+  account-by-account; enabling is a dashboard action on the model page, not a REST call. The arm
+  stays wired for the day it is enabled.
+- **Transport quirks discovered (now handled in the runner):** the model id must be sent in the
+  path with a RAW `@` — URL-encoding it (`%40cf/...`) makes Cloudflare's router return 400 "No
+  route for that URI". Classifier inputs go unwrapped in the body (`{state, questions}`), and
+  answers arrive at `result.answers` with `usage.input_tokens` as the billed quantity.
 
 ## Related evidence
 

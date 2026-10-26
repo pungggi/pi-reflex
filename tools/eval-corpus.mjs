@@ -14,11 +14,14 @@
 //
 // Run `npm run build` first — the arms import the compiled engine/conformal from ../dist.
 //
-// Clef arm uses the same REST transport pi's cloudflare-workers-ai provider
-// uses (pi-ai api/cloudflare-workers-ai-system-one.ts): POST {base}/ai/run/
-// with { model, input: { state, questions } }, answers as wire-level `noul`.
+// Clef/Jev arm uses the Workers AI REST transport: POST {base}/ai/run/{model}
+// (model in the path, classifier inputs UNWRAPPED in the body — Cloudflare docs:
+// "send the model's inputs directly in the request body, without a
+// model/input/options wrapper"), answers as wire-level `noul`.
 // Same state object + same D1 question for both arms — each system serializes
 // its own way (reflex renders state; the Workers AI service sees raw JSON).
+// IMPORTANT: the model id must go in the path with a RAW '@' — URL-encoding it
+// (%40) makes Cloudflare's router answer 400 "No route for that URI".
 //
 // Honesty: this is the A4 *protocol* runner. Numbers are smoke-grade until
 // the corpus grows (see BENCHMARKS.md §A4) and the hosted arm needs paid creds.
@@ -165,12 +168,11 @@ async function clefArm(records) {
   const out = [];
   for (const r of records) {
     const t0 = performance.now();
-    const resp = await fetch(base, {
+    const resp = await fetch(base + CLEF_MODEL, {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({
-        model: CLEF_MODEL,
-        input: { state: { a: r.a, b: r.b, kind: D1_KIND }, questions: D1_QUESTION }, // noul is the wire type
+        state: { a: r.a, b: r.b, kind: D1_KIND }, questions: D1_QUESTION, // unwrapped; noul is the wire type
       }),
     });
     const body = await resp.json();
