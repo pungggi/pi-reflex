@@ -121,34 +121,60 @@ conformal layer). Cost guard: the hosted arm caps at `--limit` (default 200) cal
 
 ### Results (int8, CPU, deterministic seeded split; rerun with the commands above)
 
+Local arms (all three checkpoints, curated corpus):
+
 | reflex engine | accuracy@0.5 | ECE-10 | AUC | latency p50 / p95 | conformal coverage (α=0.1) | abstain | act-accuracy (n) |
 |---|---|---|---|---|---|---|---|
 | multilingual | 56.7% | 0.329 | 0.470 | 82 / 107 ms | **90.0%** | 83.3% | 40.0% (10) |
 | typed-decisions | 50.8% | 0.022 | 0.530 | 171 / 212 ms | **96.7%** | 86.7% | 75.0% (8) |
 | english | 52.5% | 0.037 | 0.629 | 169 / 303 ms | **90.0%** | 71.7% | 64.7% (17) |
 
+Hosted arms (Workers AI, same 120 pairs, run 2026-10-26; latency includes network RTT;
+the temporary token used was rolled after the runs):
+
+| hosted model | accuracy@0.5 | ECE-10 | AUC | latency p50 / p95 | billed input tokens |
+|---|---|---|---|---|---|
+| @cf/cloudflare/clef-omni | **95.0%** | 0.066 | 0.996 | 243 / 565 ms | 28,037 |
+| @cf/cloudflare/clef | 94.2% | 0.048 | 0.989 | 341 / 570 ms | 28,396 |
+| @cf/cloudflare/clef-flash | 92.5% | 0.113 | **0.997** | 495 / 1222 ms | 28,396 |
+
 How to read this (measured, not spun):
 
-- **Raw checkpoints are at chance on paraphrase-sameness.** Accuracy 50.8–56.7% and AUC
+- **Raw local checkpoints are at chance on paraphrase-sameness.** Accuracy 50.8–56.7% and AUC
   0.470–0.629 re-confirm the synthetic self-test finding on real content: the uncalibrated
   laya-family checkpoints cannot rank lexically dissimilar paraphrases. This is the known
   weakness, now measured in the regime D1 actually cares about.
-- **The conformal guarantee holds everywhere.** Coverage meets the 1−α = 90% target on all three
-  engines (90.0% / 96.7% / 90.0%). With an uninformative raw score the calibrated layer mostly
-  abstains (72–87%) instead of guessing. That is the product behaving as designed, not a bug.
+- **The conformal guarantee holds on every local engine.** Coverage meets the 1−α = 90% target
+  (90.0% / 96.7% / 90.0%). With an uninformative raw score the calibrated layer mostly abstains
+  (72–87%) instead of guessing. That is the product behaving as designed, not a bug. Hosted
+  classifiers have no such layer: they answer every pair at their measured accuracy.
+- **Hosted models dominate accuracy on this hard corpus, at 3–6× the latency plus cost and
+  egress.** Clef Omni scores 95.0% / AUC 0.996 vs multilingual's 56.7% / 0.470. That is the
+  expected trade: 30B-MoE served weights vs a 322M local checkpoint. pi-reflex's case is not
+  raw accuracy parity; it is local, free, private, offline decisions with a guarantee layer.
+- **Latency ladder:** local multilingual p50 82 ms; clef-omni 243 ms; clef 341 ms; clef-flash
+  495 ms (p95 1222 ms). The flash variant is both the least accurate and the slowest here.
 - **Act-accuracy numbers are small-n.** Only 8–17 of 60 eval pairs were acted on; treat those
   percentages as indicative. Calibration quality differs by engine: typed-decisions is nearly
   perfectly calibrated (ECE 0.022), multilingual is badly overconfident (ECE 0.329).
 - **D1 quality comes from the layer, not the raw model:** production dedupe quality is expected
   from conformal gating over real calibration data, not from thresholding raw scores.
 
-### Hosted arms (Clef Omni / Jev 1.14): ready, unexercised
+### Hosted arms: exercised (Clef family) + Jev 1.14 pending enablement
 
-No Cloudflare credentials exist on this machine, so the hosted columns are honestly empty. The
-runner is wire-ready for the pi 1.4 catalog ids (`@cf/cloudflare/clef-omni`,
-`typesafe/jev-1.14.0` — both `cloudflare-workers-ai-system-one`). Cost projection from measured
-token usage (~135 input tokens/call): a 120-pair run is roughly **$0.002 on Clef Omni** and
-**$0.0007 on Jev 1.14** at catalog rates.
+- **Run 2026-10-26** on a free-plan account: `@cf/cloudflare/clef-omni`, `@cf/cloudflare/clef`,
+  `@cf/cloudflare/clef-flash` all served 120/120 calls (table above). Measured cost from billed
+  tokens: roughly **$0.004** for all three runs combined at catalog input rates.
+- **Jev 1.14 is in the catalog but not provisioned.** The dashboard lists
+  `typesafe/jev-1.14.0` (pi 1.4's id matches), yet every REST form
+  (`typesafe/jev`, `typesafe/jev-1.14`, `typesafe/jev-1.14.0`) answers 400 "No route for that URI"
+  while sibling models serve fine. Per Cloudflare's Oct 2026 changelog, TypeSafe models roll out
+  account-by-account; enabling is a dashboard action on the model page, not a REST call. The arm
+  stays wired for the day it is enabled.
+- **Transport quirks discovered (now handled in the runner):** the model id must be sent in the
+  path with a RAW `@` — URL-encoding it (`%40cf/...`) makes Cloudflare's router return 400 "No
+  route for that URI". Classifier inputs go unwrapped in the body (`{state, questions}`), and
+  answers arrive at `result.answers` with `usage.input_tokens` as the billed quantity.
 
 ## Related evidence
 
