@@ -81,7 +81,7 @@ export async function saveNudgeState(path: string, state: NudgeState): Promise<v
 export function nudgeMessage(intervalDays: number): string {
   return (
     "pi-reflex: organic dedupe labels improve D1 calibration and the A4 benchmarks (BENCHMARKS.md §A4). " +
-    "Consider running `/harness refine --proposer dedupe` in this project, then `/harness export-corpus`. " +
+    "Consider running `/refine --proposer dedupe` in this project, then `/harness export-corpus`. " +
     `Next reminder in ${intervalDays} days (PI_REFLEX_DEDUPE_NUDGE_DAYS=0 to disable).`
   );
 }

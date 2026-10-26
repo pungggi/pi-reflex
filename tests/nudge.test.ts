@@ -114,7 +114,8 @@ describe("harnessInUse", () => {
 describe("nudgeMessage", () => {
   it("names the command, the benefit, and the off switch", () => {
     const m = nudgeMessage(10);
-    expect(m).toContain("/harness refine --proposer dedupe");
+    expect(m).toContain("/refine --proposer dedupe");
+    expect(m).not.toContain("/harness refine"); // /harness has no refine case — refinement is its own /refine command
     expect(m).toContain("/harness export-corpus");
     expect(m).toContain("PI_REFLEX_DEDUPE_NUDGE_DAYS=0");
     expect(m).toContain("10 days");

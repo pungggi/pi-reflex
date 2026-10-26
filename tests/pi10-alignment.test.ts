@@ -143,12 +143,19 @@ describe("startup banner (on by default; PI_REFLEX_QUIET=1 silences)", () => {
 });
 
 describe("dedupe-corpus nudge (session_start, throttled)", () => {
-  async function nudgeCalls(env: Record<string, string | undefined>, home: string, statePath: string): Promise<Notification[]> {
+  async function nudgeCalls(
+    env: Record<string, string | undefined>,
+    home: string,
+    statePath: string,
+    opts: { hasUI?: boolean } = {},
+  ): Promise<Notification[]> {
     const { handlers } = activateCapturing(env, undefined, { homeDir: home, nudgeStatePath: statePath });
     const calls: Notification[] = [];
     const handler = handlers.get("session_start");
     expect(handler).toBeDefined();
-    await handler!(undefined, { ui: { notify: (message: string, level = "info") => calls.push({ message, level }) } });
+    const ctx: Record<string, unknown> = { ui: { notify: (message: string, level = "info") => calls.push({ message, level }) } };
+    if (opts.hasUI !== undefined) ctx.hasUI = opts.hasUI;
+    await handler!(undefined, ctx);
     return calls;
   }
   async function withHarnessHome(addState: boolean): Promise<{ home: string; statePath: string; cleanup: () => Promise<void> }> {
@@ -174,7 +181,7 @@ describe("dedupe-corpus nudge (session_start, throttled)", () => {
       const first = await nudgeCalls({}, home, statePath);
       expect(first).toHaveLength(2); // banner + nudge
       expect(first[0]!.message).toMatch(/pi-reflex ready/);
-      expect(first[1]!.message).toContain("/harness refine --proposer dedupe");
+      expect(first[1]!.message).toContain("/refine --proposer dedupe");
       expect(first[1]!.level).toBe("warning");
 
       const second = await nudgeCalls({}, home, statePath);
@@ -190,6 +197,21 @@ describe("dedupe-corpus nudge (session_start, throttled)", () => {
     try {
       const calls = await nudgeCalls({}, home, statePath);
       expect(calls).toHaveLength(1); // banner only
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("headless sessions (hasUI false) never consume the reminder", async () => {
+    const { home, statePath, cleanup } = await withHarnessHome(true);
+    try {
+      // pi print/JSON modes: notify is a no-op — the nudge must not stamp lastShown,
+      // or it would suppress the next interactive reminder for the whole interval.
+      const headless = await nudgeCalls({}, home, statePath, { hasUI: false });
+      expect(headless).toHaveLength(1); // banner attempt only (no-op notify in real headless)
+      const interactive = await nudgeCalls({}, home, statePath);
+      expect(interactive).toHaveLength(2); // the reminder is still due for interactive sessions
+      expect(interactive[1]!.message).toContain("/refine --proposer dedupe");
     } finally {
       await cleanup();
     }

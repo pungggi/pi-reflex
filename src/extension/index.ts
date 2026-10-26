@@ -287,16 +287,22 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
       );
     }
     // ── dedupe-corpus nudge (BENCHMARKS.md §A4): organic labels only exist when
-    // /harness refine --proposer dedupe actually runs; remind on a throttled
-    // interval when the continual harness is in use. Pure-throttle decision in
-    // nudge.ts; every IO here is best-effort (a reminder must never break startup).
+    // /refine --proposer dedupe actually runs (the harness registers refinement
+    // as its own /refine command — /harness has no refine case); remind on a
+    // throttled interval when the continual harness is in use. Pure-throttle
+    // decision in nudge.ts; every IO here is best-effort (a reminder must never
+    // break startup).
     if (env.PI_REFLEX_QUIET !== "1") {
       const nudgeDays = parseNudgeDays(env);
       const nudgePath = deps?.nudgeStatePath ?? join(homedir(), ".pi-reflex", "dedupe-nudge.json");
       const now = deps?.now ?? Date.now;
       const state = await loadNudgeState(nudgePath);
       const home = deps?.homeDir ?? homedir();
-      if (nudgeDays > 0 && shouldNudge(state?.lastShown ?? null, now(), nudgeDays) && harnessInUse(home)) {
+      // pi print/JSON modes have no UI (ctx.hasUI === false) and their notify is
+      // a no-op: stamping there would consume the 10-day reminder unseen and
+      // suppress the next interactive one (review #4382004221).
+      const headless = (ctx as { hasUI?: boolean }).hasUI === false;
+      if (!headless && nudgeDays > 0 && shouldNudge(state?.lastShown ?? null, now(), nudgeDays) && harnessInUse(home)) {
         ctx.ui.notify(nudgeMessage(nudgeDays), "warning");
         await saveNudgeState(nudgePath, { lastShown: new Date(now()).toISOString() });
       }
