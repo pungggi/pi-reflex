@@ -37,10 +37,26 @@ import { latestUserText, routeUserTurn, type ReflexAutoState } from "./vmodel.js
 import { createInjectionGuard } from "./guard.js";
 import { NATIVE_PROVIDER_ID, routerBackendFromEnv } from "./native.js";
 import { reflexToolRendererResolver, reflexToolFromName } from "./renderers.js";
+import {
+  harnessInUse,
+  loadNudgeState,
+  nudgeMessage,
+  parseNudgeDays,
+  saveNudgeState,
+  shouldNudge,
+} from "./nudge.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export interface ExtensionDeps {
   loadEngine?: (name: EngineName) => Promise<Engine>;
   env?: Record<string, string | undefined>;
+  /** Test seam for the dedupe-nudge clock (ms epoch). */
+  now?: () => number;
+  /** Test seam for the dedupe-nudge state file path. */
+  nudgeStatePath?: string;
+  /** Test seam for the home dir used by the harness-in-use check. */
+  homeDir?: string;
 }
 
 /**
@@ -269,6 +285,27 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
         "pi-reflex ready: classifier models (reflex/*), reflex/auto router, decision tools (engine loads on first use)",
         "info",
       );
+    }
+    // ── dedupe-corpus nudge (BENCHMARKS.md §A4): organic labels only exist when
+    // /refine --proposer dedupe actually runs (the harness registers refinement
+    // as its own /refine command — /harness has no refine case); remind on a
+    // throttled interval when the continual harness is in use. Pure-throttle
+    // decision in nudge.ts; every IO here is best-effort (a reminder must never
+    // break startup).
+    if (env.PI_REFLEX_QUIET !== "1") {
+      const nudgeDays = parseNudgeDays(env);
+      const nudgePath = deps?.nudgeStatePath ?? join(homedir(), ".pi-reflex", "dedupe-nudge.json");
+      const now = deps?.now ?? Date.now;
+      const state = await loadNudgeState(nudgePath);
+      const home = deps?.homeDir ?? homedir();
+      // pi print/JSON modes have no UI (ctx.hasUI === false) and their notify is
+      // a no-op: stamping there would consume the 10-day reminder unseen and
+      // suppress the next interactive one (review #4382004221).
+      const headless = (ctx as { hasUI?: boolean }).hasUI === false;
+      if (!headless && nudgeDays > 0 && shouldNudge(state?.lastShown ?? null, now(), nudgeDays) && harnessInUse(home)) {
+        ctx.ui.notify(nudgeMessage(nudgeDays), "warning");
+        await saveNudgeState(nudgePath, { lastShown: new Date(now()).toISOString() });
+      }
     }
     if (exposure !== "deferred" || typeof pi.getActiveTools !== "function") return;
     const active = pi.getActiveTools();
