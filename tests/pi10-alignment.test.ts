@@ -9,6 +9,9 @@
  *   (codemode scripts read structuredContent) instead of throwing
  */
 import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Engine } from "../src/engine/engine.js";
 import type { SystemOneResult } from "../src/core/types.js";
 import type { EngineName } from "../src/engine/download.js";
@@ -52,6 +55,10 @@ interface ActivateOpts {
   allToolNames?: string[] | null;
   /** Simulate a pi ≥ 0.99 host without the tool introspection APIs. */
   noIntrospection?: boolean;
+  /** Test seam: home dir for the dedupe-nudge harness-in-use check. */
+  homeDir?: string;
+  /** Test seam: state file path for the dedupe nudge. */
+  nudgeStatePath?: string;
 }
 
 function activateCapturing(env: Record<string, string | undefined>, loadEngine?: ExtensionDeps["loadEngine"], opts: ActivateOpts = {}) {
@@ -75,7 +82,7 @@ function activateCapturing(env: Record<string, string | undefined>, loadEngine?:
     pi.getAllTools = () => allToolNames.map((name) => ({ name }));
     pi.setActiveTools = (names: string[]) => setActiveCalls.push([...names]);
   }
-  activate(pi as never, { env, loadEngine });
+  activate(pi as never, { env, loadEngine, homeDir: opts.homeDir, nudgeStatePath: opts.nudgeStatePath });
   return { tools, handlers, commands, setActiveCalls };
 }
 
@@ -122,7 +129,7 @@ describe("startup banner (on by default; PI_REFLEX_QUIET=1 silences)", () => {
   }
 
   it("is shown by default and with PI_REFLEX_QUIET=0", async () => {
-    for (const env of [{}, { PI_REFLEX_QUIET: "0" }]) {
+    for (const env of [{ PI_REFLEX_DEDUPE_NUDGE_DAYS: "0" }, { PI_REFLEX_QUIET: "0", PI_REFLEX_DEDUPE_NUDGE_DAYS: "0" }]) {
       const calls = await sessionNotifications(env);
       expect(calls).toHaveLength(1);
       expect(calls[0]!.message).toMatch(/pi-reflex ready/);
@@ -132,6 +139,71 @@ describe("startup banner (on by default; PI_REFLEX_QUIET=1 silences)", () => {
 
   it("is silenced with PI_REFLEX_QUIET=1", async () => {
     expect(await sessionNotifications({ PI_REFLEX_QUIET: "1" })).toEqual([]);
+  });
+});
+
+describe("dedupe-corpus nudge (session_start, throttled)", () => {
+  async function nudgeCalls(env: Record<string, string | undefined>, home: string, statePath: string): Promise<Notification[]> {
+    const { handlers } = activateCapturing(env, undefined, { homeDir: home, nudgeStatePath: statePath });
+    const calls: Notification[] = [];
+    const handler = handlers.get("session_start");
+    expect(handler).toBeDefined();
+    await handler!(undefined, { ui: { notify: (message: string, level = "info") => calls.push({ message, level }) } });
+    return calls;
+  }
+  async function withHarnessHome(addState: boolean): Promise<{ home: string; statePath: string; cleanup: () => Promise<void> }> {
+    const home = await mkdtemp(join(tmpdir(), "nudge-home-"));
+    if (addState) {
+      await mkdir(join(home, ".pi", "agent"), { recursive: true });
+      await writeFile(join(home, ".pi", "agent", "harness-state.md"), "# harness\n", "utf8");
+    }
+    const stateDir = await mkdtemp(join(tmpdir(), "nudge-state-"));
+    return {
+      home,
+      statePath: join(stateDir, "dedupe-nudge.json"),
+      cleanup: async () => {
+        await rm(home, { recursive: true, force: true });
+        await rm(stateDir, { recursive: true, force: true });
+      },
+    };
+  }
+
+  it("fires once when due + harness in use, then throttles on a 10-day interval", async () => {
+    const { home, statePath, cleanup } = await withHarnessHome(true);
+    try {
+      const first = await nudgeCalls({}, home, statePath);
+      expect(first).toHaveLength(2); // banner + nudge
+      expect(first[0]!.message).toMatch(/pi-reflex ready/);
+      expect(first[1]!.message).toContain("/harness refine --proposer dedupe");
+      expect(first[1]!.level).toBe("warning");
+
+      const second = await nudgeCalls({}, home, statePath);
+      expect(second).toHaveLength(1); // banner only — nudge throttled by the state stamp
+      expect(second[0]!.message).toMatch(/pi-reflex ready/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("stays silent when the harness is not in use (no durable state)", async () => {
+    const { home, statePath, cleanup } = await withHarnessHome(false);
+    try {
+      const calls = await nudgeCalls({}, home, statePath);
+      expect(calls).toHaveLength(1); // banner only
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("respects PI_REFLEX_QUIET=1 and PI_REFLEX_DEDUPE_NUDGE_DAYS=0", async () => {
+    const { home, statePath, cleanup } = await withHarnessHome(true);
+    try {
+      expect(await nudgeCalls({ PI_REFLEX_QUIET: "1" }, home, statePath)).toEqual([]);
+      const calls = await nudgeCalls({ PI_REFLEX_DEDUPE_NUDGE_DAYS: "0" }, home, statePath);
+      expect(calls).toHaveLength(1); // banner only
+    } finally {
+      await cleanup();
+    }
   });
 });
 

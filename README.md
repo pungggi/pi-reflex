@@ -233,6 +233,7 @@ Provides a zero-dependency stdio MCP server that exposes the same four tools to 
 | `PI_REFLEX_EXPOSURE`                | `direct` \| `codemode` \| `deferred` (`direct`)                   | tool visibility to the model                                   |
 | `PI_REFLEX_MCP`                     | `1` \| `0` (`0`)                                                  | register the MCP server for the session                        |
 | `PI_REFLEX_QUIET`                   | `1` \| `0` (`0`)                                                  | silence the startup banner (`/reflex` always shows status)     |
+| `PI_REFLEX_DEDUPE_NUDGE_DAYS`       | days (`10`)                                                       | remind every N days to run `/harness refine --proposer dedupe` (grows the D1 calibration corpus); `0` disables |
 
 ## Artifacts
 
