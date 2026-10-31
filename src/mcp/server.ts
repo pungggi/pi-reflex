@@ -10,6 +10,7 @@
  * runtime (engine + presets + tool cores).
  */
 import { createInterface } from "node:readline";
+import { createRequire } from "node:module";
 import { Engine } from "../engine/engine.js";
 import { createToolCores, type ToolCores } from "../extension/cores.js";
 import { ensureEngine, findLocalEngine, type EngineName, type Quant } from "../engine/download.js";
@@ -17,9 +18,19 @@ import { ensureEngine, findLocalEngine, type EngineName, type Quant } from "../e
 const PROTOCOL_VERSION = "2024-11-05";
 /** MCP revisions this server implements (tools only — stable across these). */
 const SUPPORTED_PROTOCOL_VERSIONS = new Set(["2024-11-05", "2025-03-26", "2025-06-18"]);
-const SERVER_INFO = { name: "pi-reflex", version: "0.0.1" };
+// Resolve from the package root (../../package.json from both src/mcp and
+// dist/mcp) so serverInfo.version always matches package.json — a hardcoded
+// copy drifted at 0.0.1 for four releases.
+const { version: PKG_VERSION } = createRequire(import.meta.url)("../../package.json") as { version: string };
+const SERVER_INFO = { name: "pi-reflex", version: PKG_VERSION };
 
-/** Hand-written JSON Schema mirrors of the tool parameters (keep in sync with the pi extension). */
+/**
+ * Hand-written JSON Schema mirrors of src/extension/schemas.ts (the typebox
+ * source of truth). tests/mcp.test.ts asserts deep equality with the typebox
+ * definitions after a JSON round-trip, so the two surfaces cannot drift; the
+ * mirrors keep this server free of pi/typebox imports. outputSchema is declared
+ * per the 2025-06-18 MCP revision (older clients ignore it).
+ */
 const TOOL_SPECS = [
   {
     name: "reflex_decide",
@@ -27,12 +38,23 @@ const TOOL_SPECS = [
       "Fast calibrated single-choice decision over a state (System 1: no text generation). Use for routing, triage, categorization.",
     inputSchema: {
       type: "object",
+      required: ["state", "instructions", "options"],
       properties: {
         state: { type: "string", description: "The input text/JSON to decide over" },
         instructions: { type: "string", description: "The question to answer about the state" },
-        options: { type: "object", additionalProperties: { type: "string" }, description: "label → description mapping" },
+        options: { type: "object", patternProperties: { "^.*$": { type: "string", description: "option description" } }, description: "label → description mapping" },
       },
-      required: ["state", "instructions", "options"],
+    },
+    outputSchema: {
+      type: "object",
+      required: ["type", "choice", "probabilities", "confidence", "inputTokens"],
+      properties: {
+        type: { type: "string", const: "choice" },
+        choice: { type: "string" },
+        probabilities: { type: "object", patternProperties: { "^.*$": { type: "number" } } },
+        confidence: { type: "number" },
+        inputTokens: { type: "integer" },
+      },
     },
   },
   {
@@ -40,11 +62,21 @@ const TOOL_SPECS = [
     description: "Calibrated probability that a condition holds for a state (binary, no text generation).",
     inputSchema: {
       type: "object",
+      required: ["state", "question"],
       properties: {
         state: { type: "string" },
         question: { type: "string", description: "Yes/no question about the state" },
       },
-      required: ["state", "question"],
+    },
+    outputSchema: {
+      type: "object",
+      required: ["type", "probability", "confidence", "inputTokens"],
+      properties: {
+        type: { type: "string", const: "bool" },
+        probability: { type: "number" },
+        confidence: { type: "number" },
+        inputTokens: { type: "integer" },
+      },
     },
   },
   {
@@ -52,12 +84,24 @@ const TOOL_SPECS = [
     description: "Calibrated rating on an ordinal rubric (expected level + distribution).",
     inputSchema: {
       type: "object",
+      required: ["state", "instructions", "levels"],
       properties: {
         state: { type: "string" },
         instructions: { type: "string" },
         levels: { type: "array", items: { type: "string" }, minItems: 2, description: "ordered rubric levels, low → high" },
       },
-      required: ["state", "instructions", "levels"],
+    },
+    outputSchema: {
+      type: "object",
+      required: ["type", "score", "levelCount", "probabilities", "confidence", "inputTokens"],
+      properties: {
+        type: { type: "string", const: "score" },
+        score: { type: "number" },
+        levelCount: { type: "integer" },
+        probabilities: { type: "object", patternProperties: { "^.*$": { type: "number" } } },
+        confidence: { type: "number" },
+        inputTokens: { type: "integer" },
+      },
     },
   },
   {
@@ -65,8 +109,26 @@ const TOOL_SPECS = [
     description: "Recommend a model tier (small/mid/frontier) + guardrail flags for an incoming message, in one fast local pass.",
     inputSchema: {
       type: "object",
-      properties: { message: { type: "string", description: "Incoming user message" } },
       required: ["message"],
+      properties: { message: { type: "string", description: "Incoming user message" } },
+    },
+    outputSchema: {
+      type: "object",
+      required: ["type", "tier", "reason", "guards", "inputTokens"],
+      properties: {
+        type: { type: "string", const: "route" },
+        tier: { anyOf: [{ type: "string", const: "small" }, { type: "string", const: "mid" }, { type: "string", const: "frontier" }] },
+        reason: { type: "string" },
+        complexity: { type: "string" },
+        needsCode: { type: "number" },
+        longContext: { type: "number" },
+        guards: {
+          type: "object",
+          required: ["injection", "harmful"],
+          properties: { injection: { type: "number" }, harmful: { type: "number" } },
+        },
+        inputTokens: { type: "integer" },
+      },
     },
   },
 ] as const;

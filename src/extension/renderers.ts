@@ -69,7 +69,7 @@ export interface CallSummary {
   /** Main line: the question/instructions/message the decision is about. */
   title: string;
   /** Secondary detail (option/level counts), rendered dim. */
-  detail?: string;
+  detail?: string | undefined;
 }
 
 export function summarizeCall(tool: ReflexToolName, args: Record<string, unknown> | undefined): CallSummary {

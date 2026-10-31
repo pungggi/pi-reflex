@@ -35,12 +35,12 @@ export interface DedupePairRecord {
   b: string;
   label: DedupeLabel;
   /** observed similarity in [0,1] (e.g. the Jaccard the planner saw) */
-  similarity?: number;
+  similarity?: number | undefined;
   /** e.g. "tokenOverlap" */
-  source?: string;
+  source?: string | undefined;
   /** set on not_dup only (planner declined a same-key-field pair) */
-  needs_review?: boolean;
-  meta?: DedupePairMeta;
+  needs_review?: boolean | undefined;
+  meta?: DedupePairMeta | undefined;
 }
 
 export interface LifecycleRecord {
@@ -51,7 +51,7 @@ export interface LifecycleRecord {
   content_hash: string;
   event: LifecycleEvent;
   /** importance in [0,1] at event time */
-  importance?: number;
+  importance?: number | undefined;
 }
 
 export interface CorpusStats {

@@ -1,0 +1,74 @@
+{
+  "english/model.int8.onnx": {
+    "sha256": "d5ee63af84d8da2720e5840974f151beb4234eea4d9d58083c58e045603902ec",
+    "size": 425351731
+  },
+  "english/model.onnx": {
+    "sha256": "3a6469e2988cd805c13c6d9e2acac749de55dd28195a6abd9271ef2ba0de39da",
+    "size": 4018062
+  },
+  "english/model.onnx.data": {
+    "sha256": "487746363a8da57bcadb4345352997d22a0fb90d70aa22c6856668d023242aba",
+    "size": 1685258240
+  },
+  "english/rl_agent_config.json": {
+    "sha256": "ae287b56bbcf5f8c4f4541ae9dfd00c914c4c48b940b8398c3058af37ba92bbd",
+    "size": 745
+  },
+  "english/tokenizer/tokenizer.json": {
+    "sha256": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
+    "size": 3583228
+  },
+  "english/tokenizer/tokenizer_config.json": {
+    "sha256": "50044de60daaa73df97d262e15a40d4faf0160e7d742df64b377877a1320dd12",
+    "size": 308
+  },
+  "multilingual/model.int8.onnx": {
+    "sha256": "64cfa42c899fb6811e3bebfb3be1f9eb29469aa7c9f7b1b1290706dc0ce9d09f",
+    "size": 325114041
+  },
+  "multilingual/model.onnx": {
+    "sha256": "d446acd83f6a04c2cb0a129dc5bf73b9fa90ea15c3a0a2a768b4526052d1906f",
+    "size": 3215464
+  },
+  "multilingual/model.onnx.data": {
+    "sha256": "6ef993ee707fe1d6a75529f4a1f8347ff89966ff955d332ea3ebe4e5171a9ac1",
+    "size": 1287651328
+  },
+  "multilingual/rl_agent_config.json": {
+    "sha256": "25061739243b617ad88d1219ba6f8a9c86c5881ca28df024fa2d9b3b2fcc30c6",
+    "size": 472
+  },
+  "multilingual/tokenizer/tokenizer.json": {
+    "sha256": "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+    "size": 34363188
+  },
+  "multilingual/tokenizer/tokenizer_config.json": {
+    "sha256": "6c6b2d8e3c84ce0e671c129cd6b374b235d6f9863042a5836358d00a89bbb5a1",
+    "size": 524
+  },
+  "typed-decisions/model.int8.onnx": {
+    "sha256": "169c51a4009f3e675d7b87620417b5bebea62233de5822b0d46bbb04b8e44b31",
+    "size": 425351731
+  },
+  "typed-decisions/model.onnx": {
+    "sha256": "84d4d974c5cd9a33869233f6eeb326919982449d30e9cd82f0e470a84eeaf191",
+    "size": 4018062
+  },
+  "typed-decisions/model.onnx.data": {
+    "sha256": "3cb9279d74d772292d83b68471f5251e1fca540ffc606a993fa9563d9dd6ae31",
+    "size": 1685258240
+  },
+  "typed-decisions/rl_agent_config.json": {
+    "sha256": "ebf0cd524d92342a6be5e48e9fca3d7c2babfb5a56ccd79d2171ef5d8c7f7be8",
+    "size": 847
+  },
+  "typed-decisions/tokenizer/tokenizer.json": {
+    "sha256": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
+    "size": 3583228
+  },
+  "typed-decisions/tokenizer/tokenizer_config.json": {
+    "sha256": "08d4cf3ac4dca381759441b85b91a6d40e688471dcd33d15d6649eb0a9a854d1",
+    "size": 337
+  }
+}

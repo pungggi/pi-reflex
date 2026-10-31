@@ -7,8 +7,13 @@
  *
  * Cache layout: $PI_REFLEX_ENGINES_DIR (default ~/.pi-reflex/engines)/<name>-<quant>/
  * Resolution order everywhere: $PI_REFLEX_ARTIFACTS (local export dir) → cache → download.
+ *
+ * Integrity: digests pinned in the package's checksums.json are enforced —
+ * sha256 after download, size on every cache hit. Downloads are guarded by a
+ * sibling lockfile so the extension and the MCP server (two processes sharing
+ * the cache) never interleave writes into the same .part file.
  */
-import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, createWriteStream, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { Readable } from "node:stream";
@@ -84,6 +89,54 @@ export interface DownloadOptions {
   fetchImpl?: typeof fetch;
   /** Backoff between in-call retries; tests pass 1 to keep suites fast. */
   retryDelayMs?: number;
+  /**
+   * Pinned digests to enforce ("<engine>/<file>" → digest). `undefined` (default)
+   * loads checksums.json from the package; `null` disables verification (tests
+   * with tiny mocked bodies); an explicit manifest overrides the pins.
+   */
+  checksums?: ChecksumManifest | null;
+}
+
+export interface FileDigest {
+  sha256: string;
+  size: number;
+}
+
+/** Pinned artifact digests: "<engine>/<file>" (e.g. "english/model.int8.onnx") → digest. */
+export type ChecksumManifest = Record<string, FileDigest>;
+
+let manifestCache: ChecksumManifest | null | undefined;
+
+/**
+ * The pinned digests shipped next to this module in the npm package
+ * (../../checksums.json from both src/engine and dist/engine). Null when the
+ * file is absent/unreadable or PI_REFLEX_NO_CHECKSUM_VERIFY=1 — verification
+ * then degrades to size-only instead of blocking engine use.
+ */
+export function loadChecksumManifest(): ChecksumManifest | null {
+  if (manifestCache === undefined) {
+    if (process.env.PI_REFLEX_NO_CHECKSUM_VERIFY === "1") {
+      manifestCache = null;
+    } else {
+      try {
+        manifestCache = JSON.parse(readFileSync(new URL("../../checksums.json", import.meta.url), "utf8")) as ChecksumManifest;
+      } catch {
+        manifestCache = null;
+      }
+    }
+  }
+  return manifestCache;
+}
+
+async function sha256File(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  await pipeline(
+    createReadStream(path),
+    async function* (chunks: AsyncIterable<Buffer>) {
+      for await (const chunk of chunks) hash.update(chunk);
+    },
+  );
+  return hash.digest("hex");
 }
 
 const DOWNLOAD_ATTEMPTS = 3;
@@ -206,7 +259,7 @@ async function downloadTo(
     const body = Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
     body.on("data", (chunk: Buffer) => {
       bytes += chunk.length;
-      onProgress?.({ file: dest, bytes, total });
+      onProgress?.(total !== undefined ? { file: dest, bytes, total } : { file: dest, bytes });
     });
     try {
       await pipeline(body, createWriteStream(tmp, { flags: start > 0 ? "a" : "w" }));
@@ -217,9 +270,67 @@ async function downloadTo(
       await sleep(retryDelayMs * attempt);
       continue;
     }
+    // The body ended cleanly but short of the promised length (server dropped the
+    // connection between segments): without this check the truncated file would
+    // be renamed into place and treated as complete.
+    if (total !== undefined && bytes !== total) {
+      if (attempt >= DOWNLOAD_ATTEMPTS) throw new Error(`download incomplete (${bytes}/${total} bytes) for ${url}`);
+      onRetry?.({ file: dest, attempt, byteOffset: partSize(tmp), error: `short body (${bytes}/${total} bytes)` });
+      await sleep(retryDelayMs * attempt);
+      continue;
+    }
     renameSync(tmp, dest);
     rmSync(metaPath, { force: true });
     return;
+  }
+}
+
+const LOCK_POLL_MS = 250;
+/** A lock older than this is a crashed holder's leftover — safe to steal. */
+const LOCK_STALE_MS = 15 * 60_000;
+
+function tryAcquireLock(lockPath: string): boolean {
+  try {
+    writeFileSync(lockPath, `${process.pid}\n`, { flag: "wx" });
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw e;
+  }
+}
+
+/**
+ * Mutex around one engine directory. The extension and the MCP server are
+ * separate processes sharing ~/.pi-reflex/engines and both download lazily;
+ * without the lock two of them can append to the same .part file and interleave
+ * generations. Crashed holders leave a stale lock that is reclaimed after
+ * LOCK_STALE_MS; on Windows a live holder's open write can make the steal fail,
+ * in which case we simply keep polling until it releases.
+ */
+async function withEngineLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
+  let held = false;
+  while (!held) {
+    held = tryAcquireLock(lockPath);
+    if (held) break;
+    try {
+      if (Date.now() - statSync(lockPath).mtimeMs > LOCK_STALE_MS) {
+        rmSync(lockPath, { force: true });
+        held = tryAcquireLock(lockPath);
+      }
+    } catch {
+      // lock vanished between the failed acquire and the stat, or a live
+      // holder's write keeps it undeletable on Windows — poll again
+    }
+    if (!held) await sleep(LOCK_POLL_MS);
+  }
+  try {
+    return await fn();
+  } finally {
+    try {
+      rmSync(lockPath, { force: true });
+    } catch {
+      // best-effort; a stuck lock is reclaimed by the stale sweep
+    }
   }
 }
 
@@ -235,18 +346,42 @@ export async function ensureEngine(name: EngineName, opts: DownloadOptions = {})
 
   const dir = engineDir(name, quant, opts.root);
   const fetchImpl = opts.fetchImpl ?? fetch;
-  for (const file of engineFiles(quant)) {
-    const dest = join(dir, file);
-    if (existsSync(dest) && statSync(dest).isFile() && statSync(dest).size > 0) continue;
-    await downloadTo(hfFileUrl(repo, name, file), dest, {
-      onProgress: opts.onProgress,
-      onRetry: opts.onRetry,
-      fetchImpl,
-      retryDelayMs: opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
-    });
-  }
-  if (!isEngineReady(dir, quant)) throw new Error(`engine '${name}' (${quant}) incomplete after download in ${dir}`);
-  return dir;
+  const manifest = opts.checksums !== undefined ? opts.checksums : loadChecksumManifest();
+  return withEngineLock(`${dir}.lock`, async () => {
+    // Another process may have finished this engine while we waited for the lock.
+    if (isEngineReady(dir, quant)) return dir;
+    for (const file of engineFiles(quant)) {
+      const dest = join(dir, file);
+      const pinned = manifest?.[`${name}/${file}`];
+      let existing: { size: number } | undefined;
+      try {
+        existing = statSync(dest);
+      } catch {
+        // not on disk — download below
+      }
+      if (existing && existing.size > 0 && (!pinned || existing.size === pinned.size)) continue;
+      if (existing) rmSync(dest, { force: true }); // cached size disagrees with the pinned digest
+      await downloadTo(hfFileUrl(repo, name, file), dest, {
+        onProgress: opts.onProgress,
+        onRetry: opts.onRetry,
+        fetchImpl,
+        retryDelayMs: opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
+      });
+      if (pinned) {
+        const got = await sha256File(dest);
+        if (got !== pinned.sha256) {
+          rmSync(dest, { force: true });
+          throw new Error(
+            `artifact digest mismatch for ${name}/${file}: downloaded ${got}, pinned ${pinned.sha256} — the copy was discarded. ` +
+              "The upstream repo changed since this pi-reflex release, or the download was corrupted/tampered. " +
+              "Update pi-reflex; for an unverified one-off set PI_REFLEX_NO_CHECKSUM_VERIFY=1, or point PI_REFLEX_ARTIFACTS at a local export.",
+          );
+        }
+      }
+    }
+    if (!isEngineReady(dir, quant)) throw new Error(`engine '${name}' (${quant}) incomplete after download in ${dir}`);
+    return dir;
+  });
 }
 
 /** Content-addressed cache keys (companion pair caching). */

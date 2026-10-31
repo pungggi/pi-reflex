@@ -145,11 +145,11 @@ describe("buildSequence", () => {
     expect(ids[1]).toBe("c".charCodeAt(0)); // "choice question: route this"
     const firstSep = ids.indexOf(102);
     expect(firstSep).toBeGreaterThan(0);
-    expect(ids[markers[0]]).toBe(103);
-    expect(ids[markers[1]]).toBe(103);
+    expect(ids[markers[0]!]).toBe(103);
+    expect(ids[markers[1]!]).toBe(103);
     // each option: mask + " " + text
-    expect(ids[markers[0] + 1]).toBe(" ".charCodeAt(0));
-    expect(ids[markers[0] + 2]).toBe("a".charCodeAt(0));
+    expect(ids[markers[0]! + 1]).toBe(" ".charCodeAt(0));
+    expect(ids[markers[0]! + 2]).toBe("a".charCodeAt(0));
     // trailing [SEP] state [SEP]
     expect(ids[ids.length - 1]).toBe(102);
     const stateStr = "hello world";
@@ -169,7 +169,7 @@ describe("buildSequence", () => {
     // per-option cap kicks in: each option ≤ per tokens
     const per = Math.max(4, Math.trunc((192 - 16) / 30));
     for (let i = 0; i < markers.length - 1; i++) {
-      expect(markers[i + 1] - markers[i]).toBeLessThanOrEqual(per + 1); // +1 safety
+      expect(markers[i + 1]! - markers[i]!).toBeLessThanOrEqual(per + 1); // +1 safety
     }
   });
 
@@ -215,11 +215,11 @@ describe("collate", () => {
     expect(b.batch).toBe(2);
     expect(b.seqLen).toBe(Math.max(s1.ids.length, s2.ids.length));
     expect(b.kmax).toBe(3);
-    expect(b.inputIds[0].length).toBe(b.seqLen);
-    expect(b.attentionMask[0].slice(s1.ids.length).every((v) => v === 0)).toBe(true);
-    expect(b.attentionMask[1].slice(s2.ids.length).every((v) => v === 0)).toBe(true);
+    expect(b.inputIds[0]!.length).toBe(b.seqLen);
+    expect(b.attentionMask[0]!.slice(s1.ids.length).every((v) => v === 0)).toBe(true);
+    expect(b.attentionMask[1]!.slice(s2.ids.length).every((v) => v === 0)).toBe(true);
     expect(b.markerMask[0]).toEqual([true, true, false]); // noul = 2 options (false/true)
-    expect(b.markerPos[1].slice(s2.markers.length)).toEqual([0, 0, 0].slice(0, 3 - s2.markers.length));
+    expect(b.markerPos[1]!.slice(s2.markers.length)).toEqual([0, 0, 0].slice(0, 3 - s2.markers.length));
     expect(b.totalTokens).toBe(s1.ids.length + s2.ids.length);
     expect(b.qtype).toEqual([2, 0]);
   });

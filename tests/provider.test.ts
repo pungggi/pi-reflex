@@ -46,7 +46,7 @@ describe("classifier question mapping", () => {
     });
   });
   it("mapQuestions preserves question ids", () => {
-    const qs = mapQuestions({ a: { type: "bool", instructions: "q" }, b: { type: "score", instructions: "s", criteria: ["x", "y"] } });
+    const qs = mapQuestions({ a: { type: "bool", instructions: "q", criteria: { true: "yes", false: "no" } }, b: { type: "score", instructions: "s", criteria: ["x", "y"] } });
     expect(Object.keys(qs)).toEqual(["a", "b"]);
     expect(qs.a?.type).toBe("noul");
     expect(qs.b?.type).toBe("score");
@@ -74,7 +74,7 @@ describe("createReflexClassifier.classify", () => {
     const model = { id: "multilingual", api: "reflex-onnx" } as never;
     const res = await impl.classify(model, {
       state: { message: "ship it" },
-      questions: { ok: { type: "bool", instructions: "Does the user approve?" } },
+      questions: { ok: { type: "bool", instructions: "Does the user approve?", criteria: { true: "yes", false: "no" } } },
     });
     expect(res.stopReason).toBe("stop");
     expect(res.provider).toBe("reflex");
@@ -89,7 +89,7 @@ describe("createReflexClassifier.classify", () => {
     });
     const model = { id: "english", api: "reflex-onnx" } as never;
     await expect(
-      impl.classify(model, { state: {}, questions: { q: { type: "bool", instructions: "?" } } }),
+      impl.classify(model, { state: {}, questions: { q: { type: "bool", instructions: "?", criteria: { true: "yes", false: "no" } } } }),
     ).rejects.toThrow(/no artifacts/);
   });
 
@@ -100,7 +100,7 @@ describe("createReflexClassifier.classify", () => {
     let engineCalled = false;
     const impl = createReflexClassifier(async () => {
       engineCalled = true;
-      return fakeEngine(() => ({ type: "noul", noul: 0.9 }));
+      return fakeEngine(() => ({ type: "noul", noul: 0.9, confidence: 0.9, action: { act_probability: 0.5 } }));
     });
     const model = { id: "multilingual", api: "reflex-onnx" } as never;
     const image = { type: "image" as const, data: "aGk=", mimeType: "image/png" };
@@ -108,7 +108,7 @@ describe("createReflexClassifier.classify", () => {
       impl.classify(model, {
         state: {},
         images: [image],
-        questions: { q: { type: "bool", instructions: "?" } },
+        questions: { q: { type: "bool", instructions: "?", criteria: { true: "yes", false: "no" } } },
       }),
     ).rejects.toThrow(/text-only.*judge images/s);
     expect(engineCalled).toBe(false); // refused before any engine work
@@ -136,12 +136,12 @@ describe("registerReflexProvider", () => {
   it("passes a truthy baseUrl — pi's composer rejects custom models without one", () => {
     const captured: { id: string; config: Record<string, unknown> }[] = [];
     const pi = { registerProvider: (id: string, config: Record<string, unknown>) => captured.push({ id, config }) } as never;
-    registerReflexProvider(pi, () => Promise.resolve(fakeEngine(() => ({ type: "noul", noul: 0.5 }))));
+    registerReflexProvider(pi, () => Promise.resolve(fakeEngine(() => ({ type: "noul", noul: 0.5, confidence: 0.9, action: { act_probability: 0.5 } }))));
     expect(captured).toHaveLength(1);
-    expect(captured[0].id).toBe(REFLEX_PROVIDER_ID);
+    expect(captured[0]!.id).toBe(REFLEX_PROVIDER_ID);
     // Regression: pi throws 'Provider reflex: "baseUrl" is required when defining custom models.'
-    expect(captured[0].config.baseUrl).toBeTruthy();
-    expect(captured[0].config.apiKey).toBeTruthy();
-    expect((captured[0].config.models as { id: string }[]).map((m) => m.id)).toEqual(["multilingual", "english", "typed-decisions"]);
+    expect(captured[0]!.config.baseUrl).toBeTruthy();
+    expect(captured[0]!.config.apiKey).toBeTruthy();
+    expect((captured[0]!.config.models as { id: string }[]).map((m) => m.id)).toEqual(["multilingual", "english", "typed-decisions"]);
   });
 });

@@ -110,7 +110,7 @@ export function createCreateGate(opts: CompanionOptions) {
 /** D3 — importance re-score (unbounded budget; batch job). */
 export function createImportanceRescorer(opts: CompanionOptions) {
   const conformal = opts.scoreCalibration ? new ScoreConformal().fit(opts.scoreCalibration.pred, opts.scoreCalibration.truth, opts.alpha ?? 0.1) : null;
-  return async function rescore(items: readonly string[]): Promise<Array<{ score: number; interval?: { lo: number; hi: number } }>> {
+  return async function rescore(items: readonly string[]): Promise<Array<{ score: number; interval?: { lo: number; hi: number } | undefined }>> {
     if (items.length === 0) return [];
     const answers = (await opts.engine.batchQuestion(items.map((content) => ({ item: content })), D3_QUESTION)) as ScoreAnswer[];
     return answers.map((a) => ({ score: a.score, interval: conformal ? conformal.interval(a.score) : undefined }));

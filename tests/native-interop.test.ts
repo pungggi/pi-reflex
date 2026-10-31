@@ -21,6 +21,7 @@ import {
   routeViaNative,
   routerBackendFromEnv,
   routerQuestions,
+  type NativeClassifierEntry,
 } from "../src/extension/native.js";
 import { routeUserTurn } from "../src/extension/vmodel.js";
 
@@ -65,7 +66,7 @@ function nativeResult(over: Partial<Record<string, { type: "choice"; choice: str
     api: NATIVE_CLASSIFIER_API,
     provider: NATIVE_PROVIDER_ID,
     model: "Laya",
-    answers: answers as ClassifierResult["answers"],
+    answers: answers as unknown as ClassifierResult["answers"],
     stopReason: "stop",
     timestamp: 0,
   };
@@ -73,9 +74,9 @@ function nativeResult(over: Partial<Record<string, { type: "choice"; choice: str
 
 /** native deps with a recording mock; `fail` makes every call return stopReason error. */
 function nativeDeps(
-  models: unknown[],
+  models: readonly NativeClassifierEntry[],
   result: () => ClassifierResult = nativeResult,
-): { list: () => unknown[]; classify: (m: ClassifierModel<ClassifierApi>, c: ClassifierContext) => Promise<ClassifierResult>; calls: { model: string; state: unknown; questions: string[] }[] } {
+): { list: () => readonly NativeClassifierEntry[]; classify: (m: ClassifierModel<ClassifierApi>, c: ClassifierContext) => Promise<ClassifierResult>; calls: { model: string; state: unknown; questions: string[] }[] } {
   const calls: { model: string; state: unknown; questions: string[] }[] = [];
   return {
     list: () => models,

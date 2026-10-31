@@ -66,7 +66,7 @@ export interface RouteRecommendation {
 }
 
 export function tierFromRouter(
-  answers: { complexity?: string; needs_code?: number; long_context?: number },
+  answers: { complexity?: string | undefined; needs_code?: number | undefined; long_context?: number | undefined },
   guards: { injection: number; harmful: number } = { injection: 0, harmful: 0 },
 ): RouteRecommendation {
   if (guards.injection >= 0.7 || guards.harmful >= 0.7) {

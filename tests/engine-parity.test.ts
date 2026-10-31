@@ -41,13 +41,14 @@ for (const name of CHECKPOINTS) {
         for (const [qid, expA] of Object.entries(c.expected.answers)) {
           const gotA = got.answers[qid];
           expect(gotA).toBeDefined();
+          if (!gotA) continue;
           if (expA.type === "choice" && gotA.type === "choice") {
             // identical argmax unless the top-2 gap is razor thin
             const probs = Object.values(expA.probabilities).sort((a, b) => b - a);
-            const razorThin = probs.length > 1 && probs[0] - probs[1] < 0.04;
+            const razorThin = probs.length > 1 && probs[0]! - probs[1]! < 0.04;
             if (!razorThin) expect(gotA.choice).toBe(expA.choice);
             for (const [k, v] of Object.entries(expA.probabilities)) {
-              expect(Math.abs(gotA.probabilities[k] - v)).toBeLessThan(0.02);
+              expect(Math.abs(gotA.probabilities[k]! - v)).toBeLessThan(0.02);
             }
             expect(Math.abs(gotA.confidence - expA.confidence)).toBeLessThan(0.02);
           } else if (expA.type === "score" && gotA.type === "score") {
@@ -81,7 +82,7 @@ for (const name of CHECKPOINTS) {
       for (let i = 0; i < states.length; i++) {
         const single = await engine.systemOne(states[i], { q: anyScore });
         expect((single.answers.q as Answer).type).toBe("score");
-        expect(Math.abs((single.answers.q as ScoreAnswer).score - batched[i].score)).toBeLessThan(1e-6);
+        expect(Math.abs((single.answers.q as ScoreAnswer).score - batched[i]!.score)).toBeLessThan(1e-6);
       }
     }, 120_000);
   });

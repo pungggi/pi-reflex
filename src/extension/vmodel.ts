@@ -27,7 +27,7 @@ export interface ReflexAutoState {
    *  the local engine (pi 1.1 interop). Absent on degraded/legacy entries. */
   backend?: "native" | "local";
   /** Native model id (provider "llama.cpp"), when backend is native. */
-  nativeModel?: string;
+  nativeModel?: string | undefined;
 }
 
 const TIER_ENV: Record<Tier, string> = {
@@ -86,7 +86,7 @@ export interface RouteUserTurnDeps {
       context: ClassifierContext,
       options?: { signal?: AbortSignal },
     ) => Promise<ClassifierResult>;
-  };
+  } | undefined;
 }
 
 export interface RouteUserTurnResult {

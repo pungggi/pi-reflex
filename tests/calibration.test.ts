@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calibratedSoftmax, confidenceFromProbs, round4, tempBucket, temperatureFor } from "../src/core/calibration.js";
+import { calibratedSoftmax, confidenceFromProbs, round4, tempBucket, temperatureFor, type Temperatures } from "../src/core/calibration.js";
 import { buildAnswer, softmax } from "../src/core/answers.js";
 import { toInternal, type QuestionDef } from "../src/core/types.js";
 
@@ -29,7 +29,7 @@ describe("tempBucket", () => {
 });
 
 describe("temperatureFor", () => {
-  const temps = {
+  const temps: Temperatures = {
     temperature: [1.0, 1.2, 1.05],
     temperatureByOptions: { "noul:2": 1.03, "choice:3-5": 1.17 },
   };
@@ -46,25 +46,25 @@ describe("calibratedSoftmax", () => {
     const p = calibratedSoftmax([1000, 999, 0], 3, 1.17);
     const s = p.reduce((a, b) => a + b, 0);
     expect(s).toBeCloseTo(1, 10);
-    expect(p[0]).toBeGreaterThan(p[1]);
-    expect(p[1]).toBeGreaterThan(p[2]);
+    expect(p[0]!).toBeGreaterThan(p[1]!);
+    expect(p[1]!).toBeGreaterThan(p[2]!);
   });
   it("higher temperature flattens", () => {
     const cold = calibratedSoftmax([2, 0], 2, 0.5);
     const hot = calibratedSoftmax([2, 0], 2, 4);
-    expect(cold[0]).toBeGreaterThan(hot[0]);
+    expect(cold[0]!).toBeGreaterThan(hot[0]!);
   });
 });
 
 describe("buildAnswer", () => {
-  const temps = { temperature: [1, 1, 1], temperatureByOptions: {} };
+  const temps: Temperatures = { temperature: [1, 1, 1], temperatureByOptions: {} };
 
   it("choice: argmax label, probabilities, entropy confidence, act prob", () => {
     const q = toInternal({ type: "choice", instructions: "i", criteria: { billing: "b", tech: "t", sales: "s" } } as QuestionDef);
     const a = buildAnswer(q, [0.2, 4.5, 0.1], [0.7, 0.3], temps);
     if (a.type !== "choice") throw new Error("expected choice");
     expect(a.choice).toBe("tech");
-    expect(a.probabilities.billing + a.probabilities.tech + a.probabilities.sales).toBeCloseTo(1, 3);
+    expect(a.probabilities.billing! + a.probabilities.tech! + a.probabilities.sales!).toBeCloseTo(1, 3);
     expect(a.confidence).toBeGreaterThan(0.5);
     expect(a.action.act_probability).toBeCloseTo(Math.exp(0.7) / (Math.exp(0.7) + Math.exp(0.3)), 4);
   });
@@ -93,7 +93,7 @@ describe("buildAnswer", () => {
     const a = buildAnswer(q, [0, 0], [0, 0], temps);
     if (a.type !== "noul") throw new Error("expected noul");
     expect(a.noul).toBe(0.5);
-    expect(String(a.noul.split?.(".")?.[1]?.length ?? 1)).toMatch(/^[01]$/);
+    expect(String(a.noul).split(".")[1]?.length ?? 0).toBeLessThanOrEqual(4);
   });
 });
 

@@ -171,11 +171,11 @@ describe("severity (abstain and error)", () => {
 describe("renderCall", () => {
   it("shows the question for judge and dims extra detail for decide", () => {
     const renderers = reflexToolRendererResolver("reflex_judge", () => undefined)!;
-    const call = (renderers.renderCall as (a: unknown, t: Theme) => { render: (w: number) => string[] })({ question: "Is prod down?" }, plainTheme);
+    const call = (renderers.renderCall as unknown as (a: unknown, t: Theme) => { render: (w: number) => string[] })({ question: "Is prod down?" }, plainTheme);
     expect(call.render(200).map((l) => l.trimEnd())).toEqual(["Is prod down?"]);
 
     const decide = reflexToolRendererResolver("reflex_decide", () => undefined)!;
-    const call2 = (decide.renderCall as (a: unknown, t: Theme) => { render: (w: number) => string[] })(
+    const call2 = (decide.renderCall as unknown as (a: unknown, t: Theme) => { render: (w: number) => string[] })(
       { state: "s", instructions: "Fix approach?", options: { a: "first", b: "second" } },
       plainTheme,
     );

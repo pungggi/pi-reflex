@@ -97,9 +97,9 @@ export function routerQuestions(): Record<string, ClassifierQuestion> {
 
 export interface NativeRouteOutcome {
   rec: RouteRecommendation;
-  complexity?: string;
-  needsCode?: number;
-  longContext?: number;
+  complexity?: string | undefined;
+  needsCode?: number | undefined;
+  longContext?: number | undefined;
 }
 
 /**
