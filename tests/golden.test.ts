@@ -70,11 +70,16 @@ const SCORE_CALIB = {
   truth: [0, 1, 1, 3, 3, 0, 2, 3, 2, 1, 3, 3],
 };
 
+type PredictionSet =
+  | { kind: "noul"; set: [boolean, boolean] }
+  | { kind: "scoreInterval"; interval: { lo: number; hi: number } }
+  | { kind: "argmax" };
+
 interface GoldenSnapshot {
   engine: string;
   quantization: "int8";
   alpha: { noul: number; score: number };
-  states: Array<Record<string, { answer: Record<string, unknown>; predictionSet: unknown }>>;
+  states: Array<Record<string, { answer: Record<string, unknown>; predictionSet: PredictionSet }>>;
 }
 
 async function buildSnapshot(): Promise<GoldenSnapshot> {

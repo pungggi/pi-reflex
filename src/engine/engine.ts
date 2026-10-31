@@ -134,6 +134,4 @@ export class Engine {
     this.disposed = true;
     this.sess.dispose();
   }
-
-  predict = this.systemOne;
 }

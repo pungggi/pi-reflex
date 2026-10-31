@@ -24,7 +24,7 @@ function to2D(data: Float32Array, dims: readonly number[]): number[][] {
 export class OnnxSession {
   private constructor(private readonly sess: ort.InferenceSession) {}
 
-  static async create(modelPath: string, opts: { threads?: number } = {}): Promise<OnnxSession> {
+  static async create(modelPath: string, opts: { threads?: number | undefined } = {}): Promise<OnnxSession> {
     const sessionOptions: ort.InferenceSession.SessionOptions = {};
     if (opts.threads) sessionOptions.intraOpNumThreads = opts.threads;
     const sess = await ort.InferenceSession.create(modelPath, sessionOptions);

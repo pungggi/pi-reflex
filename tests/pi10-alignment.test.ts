@@ -103,7 +103,7 @@ describe("PI_REFLEX_EXPOSURE (pi ≥ 1.0 deferred exposure)", () => {
     try {
       activateCapturing({ PI_REFLEX_EXPOSURE: "hidden" });
       expect(err).toHaveBeenCalledTimes(1);
-      expect(String(err.mock.calls[0][0])).toMatch(/PI_REFLEX_EXPOSURE='hidden'.*codemode \| deferred \| direct/);
+      expect(String(err.mock.calls[0]![0])).toMatch(/PI_REFLEX_EXPOSURE='hidden'.*codemode \| deferred \| direct/);
       err.mockClear();
       activateCapturing({ PI_REFLEX_EXPOSURE: "model-only" });
       expect(err).toHaveBeenCalledTimes(1); // any unsupported value warns, not just 'hidden'

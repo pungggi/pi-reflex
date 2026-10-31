@@ -13,7 +13,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": false
+    "exactOptionalPropertyTypes": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "tests", "tools", "reference"]

@@ -70,3 +70,11 @@ The package is code-only (~kB). Model artifacts (~400 MB int8 / 1.6 GB fp32 per
 checkpoint) resolve at runtime: `$PI_REFLEX_ARTIFACTS` → cache
 (`~/.pi-reflex/engines`) → HF download from `ngSoftware/pi-reflex-artifacts`
 (must be public). Generate locally with `tools/export_onnx.py` instead.
+
+## If you re-upload artifacts: regenerate the pins
+
+Downloads verify sha256 against `checksums.json`, which is pinned in the npm
+package. After any change to the HF repo, run `npm run checksums`
+(`tools/make_checksums.mjs`), commit the updated `checksums.json`, and release —
+otherwise every fresh install fails the digest check by design (that is the
+tamper signal doing its job).

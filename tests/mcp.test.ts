@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Engine } from "../src/engine/engine.js";
+import { REFLEX_TOOL_SCHEMAS } from "../src/extension/schemas.js";
 import type { SystemOneResult } from "../src/core/types.js";
 import { createToolCores } from "../src/extension/cores.js";
 import { ReflexMcpServer } from "../src/mcp/server.js";
@@ -48,6 +51,25 @@ describe("MCP stdio server", () => {
     expect(res.result.protocolVersion).toBe("2025-06-18");
     expect(res.result.serverInfo.name).toBe("pi-reflex");
     expect(res.result.capabilities.tools).toEqual({});
+  });
+
+  it("serverInfo.version tracks package.json (drifted as 0.0.1 through 0.3.x)", async () => {
+    const res = await call(makeServer(), { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
+    expect(res.result.serverInfo.version).toBe(pkg.version);
+  });
+
+  it("tool schemas are exact mirrors of the typebox source of truth (anti-drift)", async () => {
+    const res = await call(makeServer(), { jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const tools: { name: string; inputSchema: unknown; outputSchema: unknown }[] = res.result.tools;
+    expect(tools.map((t) => t.name)).toEqual(["reflex_decide", "reflex_judge", "reflex_rate", "reflex_route"]);
+    for (const tool of tools) {
+      const key = tool.name.replace("reflex_", "") as keyof typeof REFLEX_TOOL_SCHEMAS;
+      const schema = REFLEX_TOOL_SCHEMAS[key];
+      // JSON round-trip strips typebox symbol props, leaving plain JSON Schema
+      expect(tool.inputSchema).toEqual(JSON.parse(JSON.stringify(schema.parameters)));
+      expect(tool.outputSchema).toEqual(JSON.parse(JSON.stringify(schema.outputSchema)));
+    }
   });
 
   it("PR#2 #5: unknown protocol versions negotiate down to a supported one", async () => {

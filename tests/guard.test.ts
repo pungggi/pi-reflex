@@ -119,13 +119,13 @@ describe("injection guard", () => {
     expect(await guard.process(messages)).toBeUndefined();
     expect(guard.stats.tripped).toBe(true);
     expect(guard.stats.errors).toBe(3);
-    // tripped: inert even if the engine recovers
-    const ok = createInjectionGuard(fakeLoader({ injection: 0.99, harmful: 0 }));
-    const guard2 = createInjectionGuard(async () => {
-      guard2.stats.tripped = true;
-      return ok();
-    });
+    // tripped: inert even if the engine recovers. (The previous construction
+    // wrapped the loader in a second guard and "passed" only because calling
+    // that guard threw inside the loader — the error path, not inertness.)
+    const guard2 = createInjectionGuard(fakeLoader({ injection: 0.99, harmful: 0 }));
+    guard2.stats.tripped = true; // tripped by earlier failures; engine has since recovered
     expect(await guard2.process(messages)).toBeUndefined();
+    expect(guard2.stats.checked).toBe(0); // inert: classifies nothing at all
   });
 
   it("PR#2 #4: cache eviction never drops a flagged annotation", async () => {

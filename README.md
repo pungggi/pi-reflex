@@ -225,6 +225,7 @@ Provides a zero-dependency stdio MCP server that exposes the same four tools to 
 | `PI_REFLEX_ENGINE`                  | `english` \| `multilingual` \| `typed-decisions` (`multilingual`) | default engine for tools, router, guard                        |
 | `PI_REFLEX_QUANT`                   | `int8` \| `fp32` (`int8`)                                         | precision + artifact set; set before launch, restart to switch |
 | `PI_REFLEX_ARTIFACTS`               | directory                                                         | local artifacts override (skips cache + download)              |
+| `PI_REFLEX_NO_CHECKSUM_VERIFY`      | `1` \| `0` (`0`)                                                  | skip pinned sha256 verification of downloaded artifacts (not recommended) |
 | `PI_REFLEX_TIER_SMALL/MID/FRONTIER` | `provider/model-id`                                               | `reflex/auto` tier mapping                                     |
 | `PI_REFLEX_ROUTER_BACKEND`          | `auto` \| `native` \| `local` (`auto`)                            | router classification backend; `local` never uses llama.cpp    |
 | `PI_REFLEX_NATIVE_CLASSIFIER`       | decision-model id (e.g. `Laya`)                                  | pin a specific llama.cpp decision model (pi ≥ 1.1)             |
@@ -245,7 +246,16 @@ The engine resolves artifacts in the following order:
 
 **Download Behavior:**
 
-- **Resilience**: Interrupted downloads leave a `.part` file and will **resume from that byte offset** on the next attempt. Transient errors retry automatically within the call.
+- **Integrity**: every downloaded file is verified against `checksums.json`
+  (sha256 + size, pinned in the npm package — regenerate with
+  `npm run checksums` after re-uploading artifacts). A mismatch discards the
+  copy and fails with an explanation; cached files are size-checked against
+  the same pins on every use. `PI_REFLEX_NO_CHECKSUM_VERIFY=1` skips this.
+- **Concurrency**: the extension and the MCP server share the cache as two
+  processes; a per-engine lockfile serializes their downloads so `.part`
+  files are never interleaved. Stale locks from crashed holders are reclaimed
+  automatically.
+- **Resilience**: Interrupted downloads leave a `.part` file and will **resume from that byte offset** on the next attempt. Transient errors retry automatically within the call, as do bodies that end short of `content-length` (a truncated download is never promoted as complete).
 - **Visibility**: Download progress is shown in the pi footer.
 - **Failures**: If a download fails on first use, you just need to retry; no manual cleanup is required.
 
@@ -270,6 +280,7 @@ _(Note: Omit `--subfolder` for the English engine, which lives at the repository
 
 ## Docs
 
+- [CHANGELOG.md](CHANGELOG.md): release history
 - [ARCHITECTURE.md](ARCHITECTURE.md): design, ports table, measured latencies
 - [CONTRACT-harness.md](CONTRACT-harness.md): pinned consumer contract (`pi-continual-harness`) and blueprint for integrating `pi-reflex` into your own packages
 - [BENCHMARKS.md](BENCHMARKS.md): latency evidence + A4 accuracy eval runner (reflex vs hosted clef)

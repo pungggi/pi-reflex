@@ -19,7 +19,7 @@ describe("ChoiceConformal", () => {
     const mk = (): { probs: number[]; label: number } => {
       const label = Math.floor(rng() * K);
       const raw = Array.from({ length: K }, () => rng());
-      raw[label] += 1.5;
+      raw[label] = (raw[label] ?? 0) + 1.5;
       const s = raw.reduce((a, b) => a + b, 0);
       return { probs: raw.map((v) => v / s), label };
     };
@@ -112,5 +112,49 @@ describe("escalationThreshold (conformal risk control)", () => {
   it("degenerate all-error data automates nothing", () => {
     const r = escalationThreshold([0.9, 0.8, 0.7], [true, true, true], 0.05);
     expect(r.coverage).toBe(0);
+  });
+});
+
+describe("escalationThreshold — permutation property (greedy prefix is exact & maximal)", () => {
+  it("reported risk is the exact empirical risk at the threshold, within budget, at maximal coverage", () => {
+    for (let trial = 0; trial < 250; trial++) {
+      const rng = mulberry32(1_000 + trial);
+      const n = 1 + Math.floor(rng() * 60);
+      const confidences = Array.from({ length: n }, () => rng());
+      const errors = Array.from({ length: n }, () => rng() < 0.3);
+      const alpha = [0.05, 0.1, 0.2][Math.floor(rng() * 3)]!;
+      // exact float ties would make "{c >= t}" differ from the greedy prefix; skip those trials
+      if (new Set(confidences).size !== n) continue;
+      const got = escalationThreshold(confidences, errors, alpha);
+
+      const selected = confidences.map((c, i) => ({ c, e: errors[i] })).filter((x) => x.c >= got.threshold);
+      if (got.threshold === 2) {
+        // nothing automatable: NO prefix of the descending-confidence order fits the budget
+        const order = confidences.map((_, i) => i).sort((a, b) => confidences[b]! - confidences[a]!);
+        let errs = 0;
+        order.forEach((idx, k) => {
+          if (errors[idx]) errs++;
+          if (errs / (k + 1) <= alpha) throw new Error(`trial ${trial}: threshold 2 but a prefix of ${k + 1}/${n} fits the budget`);
+        });
+        expect(selected).toHaveLength(0);
+        expect(got.coverage).toBe(0);
+        expect(got.risk).toBe(1);
+        continue;
+      }
+
+      // risk is the exact empirical risk over {confidence >= threshold} on this data
+      expect(selected).toHaveLength(Math.round(got.coverage * n));
+      const empirical = selected.filter((x) => x.e).length / selected.length;
+      expect(got.risk).toBeCloseTo(empirical, 12);
+      expect(got.risk).toBeLessThanOrEqual(alpha + 1e-12);
+
+      // maximality: the next-lower confidence (the next prefix) breaks the budget
+      const next = confidences.filter((c) => c < got.threshold).sort((a, b) => b - a)[0];
+      if (next !== undefined) {
+        const widened = confidences.map((c, i) => ({ c, e: errors[i] })).filter((x) => x.c >= next);
+        const risk = widened.filter((x) => x.e).length / widened.length;
+        expect(risk).toBeGreaterThan(alpha);
+      }
+    }
   });
 });

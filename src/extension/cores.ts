@@ -28,7 +28,7 @@ function fmtResult(res: SystemOneResult, qid: string): string {
 export async function routeRaw(
   getEngine: () => Promise<Engine>,
   message: string,
-): Promise<{ rec: RouteRecommendation; complexity?: string; needsCode?: number; longContext?: number; inputTokens: number }> {
+): Promise<{ rec: RouteRecommendation; complexity?: string | undefined; needsCode?: number | undefined; longContext?: number | undefined; inputTokens: number }> {
   const engine = await getEngine();
   const res = await engine.systemOne(message, { ...MODEL_ROUTER, ...INJECTION_GUARD });
   const complexity = res.answers.complexity?.type === "choice" ? res.answers.complexity.choice : undefined;

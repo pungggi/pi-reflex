@@ -28,10 +28,10 @@
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Api, ClassifierResult, JsonValue, Model } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
 import { Engine } from "../engine/engine.js";
 import { ensureEngine, findLocalEngine, type EngineName, type Quant } from "../engine/download.js";
 import { createToolCores } from "./cores.js";
+import { REFLEX_TOOL_SCHEMAS } from "./schemas.js";
 import { registerReflexProvider, REFLEX_PROVIDER_ID } from "./provider.js";
 import { latestUserText, routeUserTurn, type ReflexAutoState } from "./vmodel.js";
 import { createInjectionGuard } from "./guard.js";
@@ -49,14 +49,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface ExtensionDeps {
-  loadEngine?: (name: EngineName) => Promise<Engine>;
-  env?: Record<string, string | undefined>;
+  loadEngine?: ((name: EngineName) => Promise<Engine>) | undefined;
+  env?: Record<string, string | undefined> | undefined;
   /** Test seam for the dedupe-nudge clock (ms epoch). */
-  now?: () => number;
+  now?: (() => number) | undefined;
   /** Test seam for the dedupe-nudge state file path. */
-  nudgeStatePath?: string;
+  nudgeStatePath?: string | undefined;
   /** Test seam for the home dir used by the harness-in-use check. */
-  homeDir?: string;
+  homeDir?: string | undefined;
 }
 
 /**
@@ -374,7 +374,7 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
         request.previous?.model,
         (request as { signal?: AbortSignal }).signal,
       );
-      lastRouterBackend = { backend: out.backend, nativeModel: out.state.nativeModel, at: out.state.at };
+      lastRouterBackend = { backend: out.backend, ...(out.state.nativeModel ? { nativeModel: out.state.nativeModel } : {}), at: out.state.at };
       return { model: out.model, thinkingLevel: out.thinkingLevel, state: out.state };
     },
   });
@@ -403,19 +403,9 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
     promptSnippet: "Make a fast calibrated choice among options (reflex_decide) instead of asking the LLM to classify",
     namespace,
     annotations,
-    exposure,
-    parameters: Type.Object({
-      state: Type.String({ description: "The input text/JSON to decide over" }),
-      instructions: Type.String({ description: "The question to answer about the state" }),
-      options: Type.Record(Type.String(), Type.String({ description: "option description" }), { description: "label → description mapping" }),
-    }),
-    outputSchema: Type.Object({
-      type: Type.Literal("choice"),
-      choice: Type.String(),
-      probabilities: Type.Record(Type.String(), Type.Number()),
-      confidence: Type.Number(),
-      inputTokens: Type.Integer(),
-    }),
+    ...(exposure ? { exposure } : {}),
+    parameters: REFLEX_TOOL_SCHEMAS.decide.parameters,
+    outputSchema: REFLEX_TOOL_SCHEMAS.decide.outputSchema,
     async execute(_id, params, _signal?, _onUpdate?, ctx?) {
       if (ctx) slot.ui = ctx.ui;
       try {
@@ -434,17 +424,9 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
     promptSnippet: "Get a calibrated P(true) for a yes/no question (reflex_judge) instead of asking the LLM to guess",
     namespace,
     annotations,
-    exposure,
-    parameters: Type.Object({
-      state: Type.String(),
-      question: Type.String({ description: "Yes/no question about the state" }),
-    }),
-    outputSchema: Type.Object({
-      type: Type.Literal("bool"),
-      probability: Type.Number(),
-      confidence: Type.Number(),
-      inputTokens: Type.Integer(),
-    }),
+    ...(exposure ? { exposure } : {}),
+    parameters: REFLEX_TOOL_SCHEMAS.judge.parameters,
+    outputSchema: REFLEX_TOOL_SCHEMAS.judge.outputSchema,
     async execute(_id, params, _signal?, _onUpdate?, ctx?) {
       if (ctx) slot.ui = ctx.ui;
       try {
@@ -462,20 +444,9 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
     description: "Calibrated rating on an ordinal rubric (expected level + distribution).",
     namespace,
     annotations,
-    exposure,
-    parameters: Type.Object({
-      state: Type.String(),
-      instructions: Type.String(),
-      levels: Type.Array(Type.String(), { minItems: 2, description: "ordered rubric levels, low → high" }),
-    }),
-    outputSchema: Type.Object({
-      type: Type.Literal("score"),
-      score: Type.Number(),
-      levelCount: Type.Integer(),
-      probabilities: Type.Record(Type.String(), Type.Number()),
-      confidence: Type.Number(),
-      inputTokens: Type.Integer(),
-    }),
+    ...(exposure ? { exposure } : {}),
+    parameters: REFLEX_TOOL_SCHEMAS.rate.parameters,
+    outputSchema: REFLEX_TOOL_SCHEMAS.rate.outputSchema,
     async execute(_id, params, _signal?, _onUpdate?, ctx?) {
       if (ctx) slot.ui = ctx.ui;
       try {
@@ -494,20 +465,9 @@ export default function activate(pi: ExtensionAPI, deps?: ExtensionDeps): void {
     promptSnippet: "Use reflex_route on new user messages to pick the model tier cheaply before starting work",
     namespace,
     annotations,
-    exposure,
-    parameters: Type.Object({
-      message: Type.String({ description: "Incoming user message" }),
-    }),
-    outputSchema: Type.Object({
-      type: Type.Literal("route"),
-      tier: Type.Union([Type.Literal("small"), Type.Literal("mid"), Type.Literal("frontier")]),
-      reason: Type.String(),
-      complexity: Type.Optional(Type.String()),
-      needsCode: Type.Optional(Type.Number()),
-      longContext: Type.Optional(Type.Number()),
-      guards: Type.Object({ injection: Type.Number(), harmful: Type.Number() }),
-      inputTokens: Type.Integer(),
-    }),
+    ...(exposure ? { exposure } : {}),
+    parameters: REFLEX_TOOL_SCHEMAS.route.parameters,
+    outputSchema: REFLEX_TOOL_SCHEMAS.route.outputSchema,
     async execute(_id, params, _signal?, _onUpdate?, ctx?) {
       if (ctx) slot.ui = ctx.ui;
       try {
