@@ -11,10 +11,12 @@ import {
   hfFileUrl,
   isEngineReady,
   loadChecksumManifest,
+  withEngineLock,
   type ChecksumManifest,
   type FileDigest,
 } from "../src/engine/download.js";
 import { createHash } from "node:crypto";
+import { utimesSync } from "node:fs";
 
 describe("download — pure path/URL logic", () => {
   it("cache dir layout + engine file sets", () => {
@@ -324,8 +326,11 @@ describe("download — short bodies, digest verification, locking", () => {
     await expect(
       ensureEngine("english", { root, quant: "int8", fetchImpl: fakeHub(), checksums: manifest }),
     ).rejects.toThrow(/digest mismatch/);
-    expect(existsSync(join(dir, "model.int8.onnx"))).toBe(false); // discarded, not left behind
-    expect(existsSync(`${dir}.lock`)).toBe(false); // lock released despite the throw
+    // verification happens BEFORE the rename: neither the final file nor a
+    // resumable corrupt partial is left behind, and the lock is released
+    expect(existsSync(join(dir, "model.int8.onnx"))).toBe(false);
+    expect(existsSync(join(dir, "model.int8.onnx.part"))).toBe(false);
+    expect(existsSync(`${dir}.lock`)).toBe(false);
   });
 
   it("re-downloads a cached file whose size disagrees with the pinned digest", async () => {
@@ -374,5 +379,118 @@ describe("download — short bodies, digest verification, locking", () => {
     expect(modelCalls).toBe(1);
     expect(maxInFlight).toBe(1);
     expect(existsSync(`${dir}.lock`)).toBe(false);
+  });
+});
+
+describe("download — review hardening (PR #29 comments)", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-reflex-review-"));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  const FULL = "FAKEQUANTIZEDWEIGHTS";
+  const fakeHub = (async (url: string | URL | Request) => {
+    const u = String(url);
+    if (u.includes("model.int8.onnx")) return new Response(FULL, { headers: { "content-length": String(FULL.length) } });
+    const body = "{}";
+    return new Response(body, { headers: { "content-length": String(body.length) } });
+  }) as typeof fetch;
+
+  it("#1 cold cache: works when the engines root does not exist yet (lock creates it)", async () => {
+    const freshRoot = join(root, "deep", "fresh"); // does NOT exist — first-install layout
+    const result = await ensureEngine("english", { root: freshRoot, quant: "int8", fetchImpl: fakeHub, checksums: null });
+    expect(readFileSync(join(result, "model.int8.onnx"), "utf8")).toBe(FULL);
+    expect(existsSync(join(result, "tokenizer/tokenizer.json"))).toBe(true);
+  });
+
+  it("#2 a zero-byte or wrong-size cached file never satisfies the (pin-checked) fast path", async () => {
+    const dir = engineDir("english", "int8", root);
+    // complete-looking cache, but the model is truncated relative to the pins
+    mkdirSync(join(dir, "tokenizer"), { recursive: true });
+    writeFileSync(join(dir, "model.int8.onnx"), FULL.slice(0, 5));
+    writeFileSync(join(dir, "rl_agent_config.json"), "{}");
+    writeFileSync(join(dir, "tokenizer/tokenizer.json"), "{}");
+    writeFileSync(join(dir, "tokenizer/tokenizer_config.json"), "{}");
+    const manifest: ChecksumManifest = {
+      "english/model.int8.onnx": { sha256: createHash("sha256").update(FULL).digest("hex"), size: FULL.length },
+    };
+    expect(isEngineReady(dir, "int8", manifest, "english")).toBe(false);
+    expect(findLocalEngine("english", "int8")).toBeNull(); // real pins vs fake sizes → no fast path
+
+    let modelCalls = 0;
+    const countingHub = (async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("model.int8.onnx")) {
+        modelCalls++;
+        return new Response(FULL, { headers: { "content-length": String(FULL.length) } });
+      }
+      const body = "{}";
+      return new Response(body, { headers: { "content-length": String(body.length) } });
+    }) as typeof fetch;
+    const result = await ensureEngine("english", { root, quant: "int8", fetchImpl: countingHub, checksums: manifest });
+    expect(readFileSync(join(result, "model.int8.onnx"), "utf8")).toBe(FULL); // truncated file replaced
+    expect(modelCalls).toBe(1);
+  });
+
+  it("#5 content-encoded responses skip the length check (decompressed bytes ≠ compressed content-length)", async () => {
+    const dir = engineDir("multilingual", "int8", root);
+    rmSync(dir, { recursive: true, force: true });
+    const encodedHub = (async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("model.int8.onnx")) {
+        // Node's fetch decompresses encoded bodies; content-length counts the
+        // compressed representation and will never match the decoded byte count.
+        return new Response(FULL, { headers: { "content-length": "5", "content-encoding": "gzip" } });
+      }
+      const body = "{}";
+      return new Response(body, { headers: { "content-length": String(body.length) } });
+    }) as typeof fetch;
+    const retries: string[] = [];
+    const result = await ensureEngine("multilingual", {
+      root,
+      quant: "int8",
+      fetchImpl: encodedHub,
+      checksums: null,
+      onRetry: (i) => retries.push(i.error),
+    });
+    expect(readFileSync(join(result, "model.int8.onnx"), "utf8")).toBe(FULL);
+    expect(retries.filter((r) => r.includes("short body"))).toHaveLength(0);
+  });
+});
+
+describe("withEngineLock — heartbeat liveness (PR #29 comment #3)", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-reflex-lock-"));
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  it("a live holder is never stolen from, however slow its work (mtime heartbeat)", async () => {
+    const lock = join(root, "slow.lock");
+    let active = 0;
+    let overlap = 0;
+    const hold = (tag: string) =>
+      withEngineLock(lock, async () => {
+        active++;
+        overlap = Math.max(overlap, active);
+        await sleep(250); // >> staleMs: without a heartbeat this lock WOULD be stolen
+        active--;
+        return tag;
+      }, { staleMs: 100, pollMs: 10 }); // heartbeat fires every 25ms while held
+
+    const [a, b] = await Promise.all([hold("a"), hold("b")]);
+    expect([a, b].sort()).toEqual(["a", "b"]);
+    expect(overlap).toBe(1); // strictly serialized — no steal mid-flight
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it("a lock whose holder stopped heartbeating (crashed process) is reclaimed", async () => {
+    const lock = join(root, "crashed.lock");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(lock, `${process.pid}\n`);
+    const stale = new Date(Date.now() - 20 * 60_000);
+    utimesSync(lock, stale, stale); // crashed long ago, no heartbeat since
+
+    const t0 = Date.now();
+    const out = await withEngineLock(lock, async () => "reclaimed", { staleMs: 100, pollMs: 10 });
+    expect(out).toBe("reclaimed");
+    expect(Date.now() - t0).toBeLessThan(2_000); // stole promptly instead of waiting
+    expect(existsSync(lock)).toBe(false);
   });
 });

@@ -13,7 +13,7 @@
  * sibling lockfile so the extension and the MCP server (two processes sharing
  * the cache) never interleave writes into the same .part file.
  */
-import { createReadStream, createWriteStream, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, createWriteStream, mkdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { Readable } from "node:stream";
@@ -44,9 +44,19 @@ export function engineFiles(quant: Quant): string[] {
   return [...model, "rl_agent_config.json", "tokenizer/tokenizer.json", "tokenizer/tokenizer_config.json"];
 }
 
-export function isEngineReady(dir: string, quant: Quant): boolean {
+/**
+ * A cache hit is only "ready" when every file exists, is non-empty, and — when
+ * pins are given — matches its pinned size. A complete-looking cache holding a
+ * truncated or zero-byte file must not satisfy this check; it re-downloads.
+ */
+export function isEngineReady(dir: string, quant: Quant, manifest?: ChecksumManifest | null, name?: EngineName): boolean {
   try {
-    return engineFiles(quant).every((f) => statSync(join(dir, f)).isFile());
+    return engineFiles(quant).every((f) => {
+      const st = statSync(join(dir, f));
+      if (!st.isFile() || st.size === 0) return false;
+      const pinned = name && manifest ? manifest[`${name}/${f}`] : undefined;
+      return !pinned || st.size === pinned.size;
+    });
   } catch {
     return false;
   }
@@ -55,13 +65,16 @@ export function isEngineReady(dir: string, quant: Quant): boolean {
 /**
  * Resolve a ready engine directory without downloading: local artifacts override
  * ($PI_REFLEX_ARTIFACTS, e.g. a dev checkout with tools/export_onnx.py output),
- * then the shared cache. Returns null when only a download would satisfy it.
+ * then the shared cache. The advertised cache hit is validated against the
+ * pinned digest sizes; $PI_REFLEX_ARTIFACTS exports stay pin-free (dev exports
+ * legitimately differ from the hub artifacts). Returns null when only a
+ * download would satisfy it.
  */
 export function findLocalEngine(name: EngineName, quant: Quant): string | null {
   const local = process.env.PI_REFLEX_ARTIFACTS;
   if (local && isEngineReady(join(local, name), quant)) return join(local, name);
   const cached = engineDir(name, quant);
-  if (isEngineReady(cached, quant)) return cached;
+  if (isEngineReady(cached, quant, loadChecksumManifest(), name)) return cached;
   return null;
 }
 
@@ -178,9 +191,20 @@ function readPartMeta(metaPath: string): { etag?: string; total?: number } | nul
 async function downloadTo(
   url: string,
   dest: string,
-  opts: { onProgress?: DownloadOptions["onProgress"]; onRetry?: DownloadOptions["onRetry"]; fetchImpl: typeof fetch; retryDelayMs: number },
+  opts: {
+    onProgress?: DownloadOptions["onProgress"];
+    onRetry?: DownloadOptions["onRetry"];
+    fetchImpl: typeof fetch;
+    retryDelayMs: number;
+    /**
+     * Integrity gate on the finished `.part` BEFORE it is promoted to `dest`.
+     * A throw propagates without retry (a digest mismatch is deterministic,
+     * not transient) and the partial is the caller's to discard.
+     */
+    verifyTmp?: (tmp: string) => Promise<void>;
+  },
 ): Promise<void> {
-  const { onProgress, onRetry, fetchImpl, retryDelayMs } = opts;
+  const { onProgress, onRetry, fetchImpl, retryDelayMs, verifyTmp } = opts;
   mkdirSync(dirname(dest), { recursive: true });
   const tmp = `${dest}.part`;
   const metaPath = `${tmp}.meta`;
@@ -220,15 +244,21 @@ async function downloadTo(
     const etag = res.headers.get("etag") ?? undefined;
     const contentLength = res.headers.get("content-length");
     const contentRange = res.headers.get("content-range");
+    // Node's fetch transparently decompresses content-encoded bodies while
+    // content-length (and a content-range total) still counts COMPRESSED bytes.
+    // The decompressed byte count can never match those totals, so every length
+    // signal from an encoded response is untrustworthy — drop it and let the
+    // digest gate (verifyTmp) carry integrity for such responses.
+    const encoded = res.headers.get("content-encoding") !== null;
     let start = 0;
-    let total = contentLength ? Number(contentLength) : undefined;
+    let total = !encoded && contentLength ? Number(contentLength) : undefined;
     if (existing > 0 && res.status === 206) {
       const match = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(contentRange ?? "");
       const sameFile = !meta?.etag || !etag || meta.etag === etag;
       if (sameFile && (match ? Number(match[1]) === existing : true)) {
         start = existing;
-        if (match && match[3] !== "*") total = Number(match[3]);
-        else if (contentLength) total = existing + Number(contentLength);
+        if (!encoded && match && match[3] !== "*") total = Number(match[3]);
+        else if (!encoded && contentLength) total = existing + Number(contentLength);
       } else {
         // The server honored the Range but the partial does not match the current
         // file (etag change or offset mismatch). Appending would mix generations,
@@ -250,7 +280,7 @@ async function downloadTo(
     // Persist BEFORE streaming so a mid-stream death leaves the next attempt
     // enough to verify its resume against.
     try {
-      writeFileSync(metaPath, JSON.stringify({ etag, total: total ?? (contentLength ? start + Number(contentLength) : undefined) }));
+      writeFileSync(metaPath, JSON.stringify({ etag, total: total ?? (!encoded && contentLength ? start + Number(contentLength) : undefined) }));
     } catch {
       // Best-effort: without the sidecar the next attempt resumes unverified.
     }
@@ -272,13 +302,18 @@ async function downloadTo(
     }
     // The body ended cleanly but short of the promised length (server dropped the
     // connection between segments): without this check the truncated file would
-    // be renamed into place and treated as complete.
+    // be renamed into place and treated as complete. Encoded responses have no
+    // trustworthy total and skip this check (see `encoded` above).
     if (total !== undefined && bytes !== total) {
       if (attempt >= DOWNLOAD_ATTEMPTS) throw new Error(`download incomplete (${bytes}/${total} bytes) for ${url}`);
       onRetry?.({ file: dest, attempt, byteOffset: partSize(tmp), error: `short body (${bytes}/${total} bytes)` });
       await sleep(retryDelayMs * attempt);
       continue;
     }
+    // Verify the finished bytes BEFORE publishing them under the final name:
+    // a crash during verification then leaves only the .part (re-verified or
+    // re-downloaded next time), never a final file that never passed its pin.
+    if (verifyTmp) await verifyTmp(tmp);
     renameSync(tmp, dest);
     rmSync(metaPath, { force: true });
     return;
@@ -286,8 +321,8 @@ async function downloadTo(
 }
 
 const LOCK_POLL_MS = 250;
-/** A lock older than this is a crashed holder's leftover — safe to steal. */
-const LOCK_STALE_MS = 15 * 60_000;
+/** A lock whose holder has not heartbeaten for this long is dead — safe to steal. */
+export const LOCK_STALE_MS = 15 * 60_000;
 
 function tryAcquireLock(lockPath: string): boolean {
   try {
@@ -299,21 +334,40 @@ function tryAcquireLock(lockPath: string): boolean {
   }
 }
 
+export interface EngineLockOptions {
+  /** mtime age after which an unheartbeated lock is a crashed holder's leftover */
+  staleMs?: number;
+  /** waiter poll interval */
+  pollMs?: number;
+}
+
 /**
  * Mutex around one engine directory. The extension and the MCP server are
  * separate processes sharing ~/.pi-reflex/engines and both download lazily;
  * without the lock two of them can append to the same .part file and interleave
- * generations. Crashed holders leave a stale lock that is reclaimed after
- * LOCK_STALE_MS; on Windows a live holder's open write can make the steal fail,
- * in which case we simply keep polling until it releases.
+ * generations.
+ *
+ * Liveness is a heartbeat, not a one-shot creation time: the holder refreshes
+ * the lock's mtime while it works, so a legitimately slow download (a 1.7 GB
+ * fp32 checkpoint on a slow link can run for tens of minutes) keeps its lock
+ * indefinitely, and only a holder that stopped heartbeating for `staleMs`
+ * (crashed process — its interval dies with it) gets reclaimed. On Windows a
+ * live holder's file can be undeletable, making a steal fail; we then simply
+ * keep polling until it releases.
  */
-async function withEngineLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
+export async function withEngineLock<T>(lockPath: string, fn: () => Promise<T>, opts: EngineLockOptions = {}): Promise<T> {
+  const staleMs = opts.staleMs ?? LOCK_STALE_MS;
+  const pollMs = opts.pollMs ?? LOCK_POLL_MS;
+  // The cache root itself may not exist yet on a cold install — create it
+  // before the lock write, or first-use downloads die on ENOENT before
+  // downloadTo ever reaches its own mkdir.
+  mkdirSync(dirname(lockPath), { recursive: true });
   let held = false;
   while (!held) {
     held = tryAcquireLock(lockPath);
     if (held) break;
     try {
-      if (Date.now() - statSync(lockPath).mtimeMs > LOCK_STALE_MS) {
+      if (Date.now() - statSync(lockPath).mtimeMs > staleMs) {
         rmSync(lockPath, { force: true });
         held = tryAcquireLock(lockPath);
       }
@@ -321,11 +375,22 @@ async function withEngineLock<T>(lockPath: string, fn: () => Promise<T>): Promis
       // lock vanished between the failed acquire and the stat, or a live
       // holder's write keeps it undeletable on Windows — poll again
     }
-    if (!held) await sleep(LOCK_POLL_MS);
+    if (!held) await sleep(pollMs);
   }
+  // Keep the lock fresh for as long as we hold it; unref'd so a stranded
+  // holder can never keep the process (and a download-less exit) alive.
+  const heartbeat = setInterval(() => {
+    try {
+      utimesSync(lockPath, new Date(), new Date());
+    } catch {
+      // stolen or deleted underneath us — the finally rmSync is a no-op then
+    }
+  }, Math.max(25, Math.floor(staleMs / 10)));
+  heartbeat.unref?.();
   try {
     return await fn();
   } finally {
+    clearInterval(heartbeat);
     try {
       rmSync(lockPath, { force: true });
     } catch {
@@ -348,8 +413,9 @@ export async function ensureEngine(name: EngineName, opts: DownloadOptions = {})
   const fetchImpl = opts.fetchImpl ?? fetch;
   const manifest = opts.checksums !== undefined ? opts.checksums : loadChecksumManifest();
   return withEngineLock(`${dir}.lock`, async () => {
-    // Another process may have finished this engine while we waited for the lock.
-    if (isEngineReady(dir, quant)) return dir;
+    // Another process may have finished this engine while we waited for the
+    // lock — a complete, pin-validated cache needs no work.
+    if (isEngineReady(dir, quant, manifest, name)) return dir;
     for (const file of engineFiles(quant)) {
       const dest = join(dir, file);
       const pinned = manifest?.[`${name}/${file}`];
@@ -366,20 +432,27 @@ export async function ensureEngine(name: EngineName, opts: DownloadOptions = {})
         onRetry: opts.onRetry,
         fetchImpl,
         retryDelayMs: opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
+        // Digest gate runs on the finished .part BEFORE it is renamed into the
+        // cache: an unverified byte stream can never be published under its
+        // final name, so a crash mid-verification leaves nothing fake-complete.
+        ...(pinned
+          ? {
+              verifyTmp: async (tmp: string) => {
+                const got = await sha256File(tmp);
+                if (got !== pinned.sha256) {
+                  rmSync(tmp, { force: true }); // never leave corrupt bytes to resume from
+                  throw new Error(
+                    `artifact digest mismatch for ${name}/${file}: downloaded ${got}, pinned ${pinned.sha256} — the partial was discarded before publishing. ` +
+                      "The upstream repo changed since this pi-reflex release, or the download was corrupted/tampered. " +
+                      "Update pi-reflex; for an unverified one-off set PI_REFLEX_NO_CHECKSUM_VERIFY=1, or point PI_REFLEX_ARTIFACTS at a local export.",
+                  );
+                }
+              },
+            }
+          : {}),
       });
-      if (pinned) {
-        const got = await sha256File(dest);
-        if (got !== pinned.sha256) {
-          rmSync(dest, { force: true });
-          throw new Error(
-            `artifact digest mismatch for ${name}/${file}: downloaded ${got}, pinned ${pinned.sha256} — the copy was discarded. ` +
-              "The upstream repo changed since this pi-reflex release, or the download was corrupted/tampered. " +
-              "Update pi-reflex; for an unverified one-off set PI_REFLEX_NO_CHECKSUM_VERIFY=1, or point PI_REFLEX_ARTIFACTS at a local export.",
-          );
-        }
-      }
     }
-    if (!isEngineReady(dir, quant)) throw new Error(`engine '${name}' (${quant}) incomplete after download in ${dir}`);
+    if (!isEngineReady(dir, quant, manifest, name)) throw new Error(`engine '${name}' (${quant}) incomplete after download in ${dir}`);
     return dir;
   });
 }
